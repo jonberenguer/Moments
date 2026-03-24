@@ -1,0 +1,164 @@
+.overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.82);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(6px);
+}
+
+.modal {
+  width: 460px;
+  background: var(--bg2);
+  border: 1px solid var(--border-md);
+  border-radius: var(--radius-lg);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+}
+.title { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 500; color: var(--text0); }
+.closeBtn { color: var(--text2); display: flex; transition: color .15s; }
+.closeBtn:hover { color: var(--text0); }
+
+.body { padding: 24px 20px; min-height: 200px; display: flex; align-items: center; justify-content: center; }
+
+/* ── Quality selector ────────────────────────────────────────────── */
+.selectorView { width: 100%; display: flex; flex-direction: column; gap: 14px; }
+
+.selectorHeading { font-size: 14px; font-weight: 500; color: var(--text0); text-align: center; }
+.selectorSub     { font-size: 11px; color: var(--text2); text-align: center; }
+
+.qualityGrid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+
+.qualityCard {
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 3px; padding: 14px 14px 12px;
+  border-radius: var(--radius-lg);
+  border: 1.5px solid var(--border-md);
+  background: var(--bg3);
+  cursor: pointer; text-align: left;
+  transition: border-color .15s, background .15s;
+}
+.qualityCard:hover { border-color: var(--border-hi); background: var(--bg4); }
+.qualityCard.qualitySelected {
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.qualityName {
+  font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 500;
+  color: var(--text0);
+}
+.qualityCard.qualitySelected .qualityName { color: var(--accent); }
+
+.qualityDims { font-size: 12px; color: var(--text1); font-variant-numeric: tabular-nums; }
+.qualityDesc { font-size: 11px; color: var(--text2); }
+
+.checkmark {
+  position: absolute; top: 10px; right: 12px;
+  font-size: 12px; color: var(--accent); font-weight: 600;
+}
+
+.startBtn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; padding: 11px 20px; border-radius: var(--radius);
+  background: var(--accent); color: #0a0800;
+  font-size: 13px; font-weight: 500;
+  transition: opacity .15s;
+  margin-top: 2px;
+}
+.startBtn:hover:not(:disabled) { opacity: .87; }
+.startBtnDisabled { opacity: .4 !important; cursor: not-allowed; }
+
+/* ── Common states ─────────────────────────────────────────────── */
+.centeredState {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; text-align: center; width: 100%;
+}
+.stateLabel { font-size: 14px; color: var(--text0); font-weight: 500; }
+.hint { font-size: 11px; color: var(--text2); max-width: 280px; line-height: 1.5; }
+
+.spin { color: var(--accent); animation: spin 1.2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.iconDone  { color: var(--green); }
+.iconError { color: var(--red); }
+
+/* ── Export progress ───────────────────────────────────────────── */
+.exportingState { width: 100%; display: flex; flex-direction: column; gap: 10px; }
+
+.qualityLine { font-size: 11px; color: var(--text2); text-align: center; font-variant-numeric: tabular-nums; }
+
+.progressWrap { display: flex; align-items: center; gap: 10px; }
+.progressBar {
+  flex: 1; height: 4px; background: var(--bg4);
+  border-radius: 2px; overflow: hidden;
+}
+.progressFill {
+  height: 100%; background: var(--accent); border-radius: 2px;
+  transition: width .4s ease;
+}
+.progressPct { font-size: 12px; color: var(--text1); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+.progressSub { font-size: 11px; color: var(--text2); }
+
+.logBox {
+  background: var(--bg0); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 8px 10px;
+  max-height: 110px; overflow-y: auto;
+}
+.logLine { font-size: 10px; color: var(--text2); font-family: monospace; line-height: 1.7; word-break: break-all; }
+.errorLogLine {
+  font-size: 10px; color: var(--red); font-family: monospace;
+  background: rgba(232,106,106,.08); border-radius: 4px;
+  padding: 4px 8px; line-height: 1.5; word-break: break-all; width: 100%; text-align: left;
+}
+
+.preview { width: 100%; border-radius: var(--radius); margin-top: 4px; max-height: 200px; }
+
+/* ── Footer ────────────────────────────────────────────────────── */
+.footer {
+  display: flex; gap: 8px; padding: 14px 18px;
+  border-top: 1px solid var(--border); justify-content: flex-end;
+}
+
+.downloadBtn {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; padding: 7px 16px; border-radius: var(--radius);
+  background: var(--accent); color: #0a0800; font-weight: 500;
+  text-decoration: none; transition: opacity .15s;
+}
+.downloadBtn:hover { opacity: .85; }
+
+.cancelBtn {
+  font-size: 13px; padding: 7px 16px; border-radius: var(--radius);
+  background: var(--bg3); border: 1px solid var(--border-md);
+  color: var(--text1); transition: all .15s;
+}
+.cancelBtn:hover { background: var(--bg4); color: var(--text0); }
+
+/* ── Electron additions ── */
+.idleState {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cancelInline {
+  display: block;
+  margin: 8px auto 0;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text2);
+  font-size: 11px;
+  padding: 4px 14px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.cancelInline:hover { color: var(--red); border-color: var(--red); }

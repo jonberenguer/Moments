@@ -1,0 +1,8 @@
+{
+  "name": "moments",
+  "purpose": "A browser-based video editor for creating short-form slideshows and clips. Combines photos and videos with transitions, text overlays, and music — exported entirely client-side via FFmpeg WASM with no server uploads.",
+  "createdBy": "Your Name / Studio",
+  "releaseDate": "2025-01-01",
+  "version": "1.0.0",
+  "repository": "https://github.com/your-org/moments-app"
+}

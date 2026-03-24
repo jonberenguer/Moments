@@ -1,0 +1,221 @@
+.bar {
+  height: 48px;
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  flex-shrink: 0;
+  gap: 12px;
+}
+
+.left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.center { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.centerDivider { width: 1px; height: 16px; background: var(--border-md); }
+.right { display: flex; align-items: center; gap: 6px; flex: 1; justify-content: flex-end; }
+
+.logoBtn {
+  display: flex; align-items: center;
+  background: transparent; border: none; padding: 4px 6px; margin: -4px -6px;
+  border-radius: 6px; cursor: pointer;
+  transition: background .15s;
+  flex-shrink: 0;
+}
+.logoBtn:hover { background: var(--bg3); }
+.logoBtn:hover .logoText { color: var(--accent); }
+
+.logo { display: flex; align-items: center; gap: 7px; color: var(--accent); }
+.logoText {
+  font-family: 'Syne', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--text0);
+}
+
+.divider { width: 1px; height: 18px; background: var(--border-md); flex-shrink: 0; }
+.dividerThin { width: 1px; height: 14px; background: var(--border); flex-shrink: 0; margin: 0 2px; }
+
+.title {
+  font-size: 13px;
+  color: var(--text1);
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.title:hover { background: var(--bg3); color: var(--text0); }
+
+.titleInput {
+  font-size: 13px;
+  color: var(--text0);
+  background: var(--bg3);
+  border: 1px solid var(--accent-border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  width: 160px;
+}
+
+.duration {
+  font-size: 11px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+  background: var(--bg3);
+  padding: 2px 7px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.exportTimer {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  padding: 2px 8px; border-radius: 10px; flex-shrink: 0;
+  transition: background 0.3s, color 0.3s;
+}
+.exportTimerActive {
+  background: var(--accent-dim); color: var(--accent);
+}
+.exportTimerDone {
+  background: color-mix(in srgb, #22c55e 15%, transparent);
+  color: #4ade80;
+}
+.exportTimerError {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+}
+/* Aspect ratio toggle */
+.arToggle {
+  display: flex;
+  background: var(--bg0);
+  border: 1px solid var(--border-md);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.arBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 11px;
+  color: var(--text2);
+  transition: all 0.15s;
+}
+.arBtn:hover { color: var(--text1); }
+.arBtn.arActive {
+  background: var(--bg3);
+  color: var(--accent);
+  border: 1px solid var(--accent-border);
+}
+.arBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Icon buttons */
+.iconBtn {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.iconBtn:hover { background: var(--bg3); color: var(--text1); border-color: var(--border); }
+.iconBtn.iconBtnActive { background: var(--accent-dim); color: var(--accent); border-color: var(--accent-border); }
+
+.exportBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #0a0800;
+  font-weight: 500;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
+}
+.exportBtn:hover { opacity: 0.85; }
+.exportBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Download ready button — shown after export completes */
+.downloadReadyBtn {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; padding: 6px 12px; border-radius: var(--radius);
+  background: var(--accent-dim); border: 1px solid var(--accent-border);
+  color: var(--accent); font-weight: 500; text-decoration: none;
+  transition: background .15s, color .15s;
+  animation: popIn .25s ease;
+}
+.downloadReadyBtn:hover { background: rgba(232,201,106,.3); color: var(--accent); }
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(.85); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* ── Close / exit button (Windows titlebar-less mode) ── */
+.closeBtn {
+  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--radius);
+  background: transparent; border: 1px solid transparent;
+  color: var(--text2); cursor: pointer; flex-shrink: 0;
+  transition: background .15s, color .15s, border-color .15s;
+  margin-left: 4px;
+}
+.closeBtn:hover {
+  background: rgba(220, 60, 60, 0.18);
+  border-color: rgba(220, 60, 60, 0.4);
+  color: #f87171;
+}
+
+/* ── Exit confirmation overlay ── */
+.exitOverlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+}
+.exitDialog {
+  background: var(--bg2); border: 1px solid var(--border-md);
+  border-radius: var(--radius-lg); padding: 28px 32px;
+  min-width: 300px; max-width: 360px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.6);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.exitMsg {
+  font-size: 16px; font-weight: 600; color: var(--text0); margin: 0;
+}
+.exitSub {
+  font-size: 13px; color: var(--text2); margin: 0 0 16px;
+}
+.exitBtns {
+  display: flex; gap: 10px; justify-content: flex-end;
+}
+.exitCancel {
+  padding: 7px 16px; border-radius: var(--radius);
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text1); font-size: 13px; cursor: pointer;
+  transition: background .15s;
+}
+.exitCancel:hover { background: var(--bg4); }
+.exitConfirm {
+  padding: 7px 16px; border-radius: var(--radius);
+  background: rgba(220,60,60,.85); border: 1px solid rgba(220,60,60,.5);
+  color: #fff; font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: background .15s;
+}
+.exitConfirm:hover { background: rgba(220,60,60,1); }

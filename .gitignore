@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-electron/
+bin/linux/ffmpeg
+bin/win/ffmpeg.exe
+*.log
+.DS_Store

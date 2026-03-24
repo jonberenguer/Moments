@@ -1,0 +1,188 @@
+.panel {
+  width: 210px; flex-shrink: 0;
+  background: var(--bg1); border-left: 1px solid var(--border);
+  overflow-y: auto; display: flex; flex-direction: column;
+}
+
+.empty {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 8px; font-size: 12px; color: var(--text2);
+}
+.emptyIcon { font-size: 22px; }
+
+.section {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sectionTitle {
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text2);
+  font-family: 'Syne', sans-serif; margin-bottom: 10px;
+}
+
+.sectionSubtitle {
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text2);
+  font-family: 'Syne', sans-serif;
+  margin-top: 10px; margin-bottom: 6px;
+}
+
+.metaRow {
+  display: flex; justify-content: space-between;
+  align-items: center; margin-bottom: 6px;
+}
+.metaKey { font-size: 11px; color: var(--text2); }
+.metaVal { font-size: 11px; color: var(--text1); }
+.checkLabel {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--text1); cursor: pointer; user-select: none;
+}
+.checkLabel input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+
+.sliderRow { margin-bottom: 10px; }
+.sliderHeader { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.sliderLabel { font-size: 11px; color: var(--text2); }
+.sliderVal { font-size: 11px; color: var(--text1); font-variant-numeric: tabular-nums; }
+
+.slider { width: 100%; height: 3px; accent-color: var(--accent); cursor: pointer; }
+
+.resetBtn {
+  font-size: 10px; color: var(--text2); padding: 4px 0;
+  transition: color 0.15s; text-decoration: underline; text-underline-offset: 2px;
+}
+.resetBtn:hover { color: var(--text1); }
+
+.savedViewHint {
+  font-size: 10px; color: var(--text2); line-height: 1.5;
+  padding: 2px 0 4px; opacity: 0.75;
+}
+
+.textInput {
+  width: 100%; background: var(--bg3); border: 1px solid var(--border-md);
+  border-radius: var(--radius); padding: 6px 8px;
+  font-size: 12px; color: var(--text0); margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+.textInput:focus { border-color: var(--accent-border); }
+.textInput::placeholder { color: var(--text2); }
+
+.select {
+  width: 100%; background: var(--bg3); border: 1px solid var(--border-md);
+  border-radius: var(--radius); padding: 5px 8px;
+  font-size: 12px; color: var(--text1); cursor: pointer; margin-bottom: 8px;
+}
+.select:focus { border-color: var(--accent-border); }
+.select option { background: var(--bg3); }
+
+.divider { height: 1px; background: var(--border); margin: 8px 0; }
+
+.musicName {
+  font-size: 11px; color: var(--text1); background: var(--bg3);
+  border-radius: 6px; padding: 5px 8px; margin-bottom: 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border: 1px solid var(--border);
+}
+
+.toggleRow {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 0; cursor: pointer;
+}
+.toggleLabel { font-size: 12px; color: var(--text1); }
+.toggle {
+  width: 32px; height: 16px; cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.textArea {
+  width: 100%; background: var(--bg3); border: 1px solid var(--border-md);
+  border-radius: 6px; padding: 6px 8px; font-size: 13px; color: var(--text0);
+  resize: vertical; min-height: 48px; font-family: inherit;
+  transition: border-color .15s;
+}
+.textArea:focus { border-color: var(--accent-border); outline: none; }
+
+.numInput {
+  width: 68px; background: var(--bg3); border: 1px solid var(--border-md);
+  border-radius: 4px; padding: 3px 6px; font-size: 12px; color: var(--text1);
+  font-variant-numeric: tabular-nums;
+}
+
+.colorInput {
+  width: 32px; height: 24px; border: 1px solid var(--border-md);
+  border-radius: 4px; background: var(--bg3); cursor: pointer; padding: 1px;
+}
+
+.selectSmall {
+  flex: 1; background: var(--bg3); border: 1px solid var(--border-md);
+  border-radius: 4px; padding: 3px 5px; font-size: 12px; color: var(--text1);
+}
+
+.uploadFontSmall {
+  font-size: 11px; padding: 3px 8px; border-radius: 5px;
+  border: 1px solid var(--border-md); background: var(--bg3); color: var(--text2);
+  cursor: pointer; transition: all .15s;
+}
+.uploadFontSmall:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
+
+/* ── Image Effects ─────────────────────────────────────────────────────────── */
+.effectGrid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px;
+}
+.effectBtn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 6px 4px; border-radius: 6px;
+  background: var(--bg3); border: 1px solid var(--border-md);
+  color: var(--text2); font-size: 10px; cursor: pointer;
+  transition: all .15s; text-align: center;
+}
+.effectBtn:hover { border-color: var(--border-hi); color: var(--text1); background: var(--bg2); }
+.effectBtnActive {
+  border-color: var(--accent-border) !important;
+  background: var(--accent-dim) !important;
+  color: var(--accent) !important;
+}
+.effectIcon { font-size: 14px; }
+
+/* ── Video Trim ────────────────────────────────────────────────────────────── */
+.trimSection { margin-top: 6px; }
+
+.trimTrack {
+  position: relative; height: 20px; background: var(--bg3);
+  border-radius: 4px; border: 1px solid var(--border-md);
+  margin-bottom: 4px; user-select: none;
+}
+.trimDimLeft, .trimDimRight {
+  position: absolute; top: 0; bottom: 0;
+  background: rgba(0,0,0,.45); pointer-events: none; border-radius: 3px;
+}
+.trimDimLeft  { left: 0; }
+.trimDimRight { right: 0; }
+.trimActive {
+  position: absolute; top: 0; bottom: 0;
+  background: var(--accent-dim);
+  border-top: 2px solid var(--accent-border);
+  border-bottom: 2px solid var(--accent-border);
+  pointer-events: none;
+}
+.trimHandle {
+  position: absolute; top: 50%; transform: translate(-50%, -50%);
+  width: 8px; height: 22px;
+  background: var(--accent); border-radius: 3px;
+  cursor: ew-resize; border: 1px solid rgba(0,0,0,.3);
+  box-shadow: 0 1px 4px rgba(0,0,0,.4);
+  transition: background .1s;
+  z-index: 2;
+}
+.trimHandle:hover { background: #fff; }
+
+.trimLabels {
+  display: flex; justify-content: space-between;
+  font-size: 10px; color: var(--text2);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+.trimDurLabel {
+  color: var(--accent); font-size: 10px;
+}

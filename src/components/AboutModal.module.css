@@ -1,0 +1,108 @@
+.overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200;
+  backdrop-filter: blur(6px);
+  animation: fadeIn .15s ease;
+}
+@keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+
+.modal {
+  width: 400px;
+  background: var(--bg2);
+  border: 1px solid var(--border-md);
+  border-radius: var(--radius-lg);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  animation: slideUp .18s ease;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+@keyframes slideUp {
+  from { opacity:0; transform: translateY(10px) scale(.97) }
+  to   { opacity:1; transform: translateY(0)   scale(1)    }
+}
+
+/* ── Header ─────────────────────────────────────────────────────── */
+.header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+}
+.headerLogo { display: flex; align-items: center; gap: 8px; }
+.headerIcon { color: var(--accent); }
+.headerTitle {
+  font-family: 'Syne', sans-serif;
+  font-size: 14px; font-weight: 500; color: var(--text0);
+}
+.closeBtn {
+  color: var(--text2); display: flex;
+  transition: color .15s; padding: 2px;
+  border-radius: 4px;
+}
+.closeBtn:hover { color: var(--text0); background: var(--bg3); }
+
+/* ── Body ───────────────────────────────────────────────────────── */
+.body { padding: 22px 22px 18px; display: flex; flex-direction: column; gap: 14px; }
+
+.loading { font-size: 13px; color: var(--text2); text-align: center; padding: 20px 0; }
+.errorMsg {
+  font-size: 12px; color: var(--red); line-height: 1.6;
+  background: rgba(232,106,106,.08); border-radius: var(--radius);
+  padding: 10px 12px;
+}
+.errorMsg code { font-family: monospace; font-size: 11px; color: var(--text1); }
+
+/* App name block */
+.appHeader {
+  display: flex; align-items: center; gap: 14px;
+}
+.appIconWrap {
+  width: 44px; height: 44px;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.appName {
+  font-family: 'Syne', sans-serif;
+  font-size: 20px; font-weight: 600;
+  color: var(--text0); letter-spacing: 0.06em;
+}
+.appVersion {
+  font-size: 11px; color: var(--text2);
+  margin-top: 1px; font-variant-numeric: tabular-nums;
+}
+
+.purpose {
+  font-size: 12px; color: var(--text1);
+  line-height: 1.65; margin: 0;
+}
+
+.divider { height: 1px; background: var(--border); }
+
+/* Metadata rows */
+.metaList { display: flex; flex-direction: column; gap: 9px; }
+.metaRow  { display: flex; align-items: center; gap: 9px; }
+.metaIcon { color: var(--text2); display: flex; align-items: center; flex-shrink: 0; width: 14px; }
+.metaKey  { font-size: 11px; color: var(--text2); min-width: 80px; flex-shrink: 0; }
+.metaVal  { font-size: 12px; color: var(--text1); }
+.metaLink {
+  font-size: 12px; color: var(--accent);
+  text-decoration: none; word-break: break-all;
+  transition: opacity .15s;
+}
+.metaLink:hover { opacity: .75; text-decoration: underline; }
+
+/* ── Footer ─────────────────────────────────────────────────────── */
+.footer {
+  padding: 12px 18px; border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end;
+}
+.closeFooterBtn {
+  font-size: 13px; padding: 7px 18px; border-radius: var(--radius);
+  background: var(--bg3); border: 1px solid var(--border-md);
+  color: var(--text1); transition: all .15s;
+}
+.closeFooterBtn:hover { background: var(--bg4); color: var(--text0); }
