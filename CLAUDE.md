@@ -71,6 +71,9 @@ cd /path/to/clean-package
 zip -rq moments-app.zip moments-app/
 ```
 
+## claude code
+When working under claude code, review the content as is.
+
 ---
 
 ## File Structure
