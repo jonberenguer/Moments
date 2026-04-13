@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import Topbar      from './components/Topbar'
 import MediaPanel  from './components/MediaPanel'
 import Preview     from './components/Preview'
@@ -25,6 +25,18 @@ export default function App() {
   const ffmpegRef  = useRef(ffmpeg)
   storeRef.current  = store
   ffmpegRef.current = ffmpeg
+
+  // Stop any in-progress resize when the mouse button is released anywhere
+  // (including outside the resize handle div, or when the window loses focus).
+  useEffect(() => {
+    const stop = () => window.electronAPI?.stopResize?.()
+    document.addEventListener('mouseup', stop)
+    window.addEventListener('blur', stop)
+    return () => {
+      document.removeEventListener('mouseup', stop)
+      window.removeEventListener('blur', stop)
+    }
+  }, [])
 
   const handleExportOpen = useCallback(() => {
     setShowExport(true)
@@ -77,8 +89,22 @@ export default function App() {
     if (item) storeRef.current.addLibraryItemToTimeline(item)
   }, [])
 
+  const RESIZE_DIRS = ['n','ne','e','se','s','sw','w','nw']
+
   return (
     <div className={styles.app}>
+      {window.electronAPI?.isElectron && (
+        <div className={styles.resizeBorder} aria-hidden="true">
+          {RESIZE_DIRS.map(dir => (
+            <div
+              key={dir}
+              data-dir={dir}
+              className={styles.resizeHandle}
+              onMouseDown={e => { e.preventDefault(); window.electronAPI.startResize(dir) }}
+            />
+          ))}
+        </div>
+      )}
       <Topbar
         title={store.momentTitle} onTitleChange={store.setMomentTitle}
         onExport={handleExportOpen}

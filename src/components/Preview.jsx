@@ -80,8 +80,6 @@ export default function Preview({
     if (!clip || clip.type !== 'image') return ''
     switch(clip.imageEffect) {
       case 'ken_burns':   return styles.effectKenBurns
-      case 'pan_zoom':    return styles.effectPanZoom
-      case 'parallax':    return styles.effectParallax
       case 'fade_in':     return styles.effectFadeIn
       default: return ''
     }

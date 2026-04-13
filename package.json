@@ -37,6 +37,7 @@
     "eslint": "^9.39.4",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.2",
+    "ffmpeg-static": "^5.3.0",
     "globals": "^17.4.0",
     "vite": "^8.0.1",
     "wait-on": "^8.0.1"
@@ -56,30 +57,37 @@
       {
         "from": "bin/${os}",
         "to": "ffmpeg",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "public/ffmpeg/fonts",
         "to": "ffmpeg/fonts",
-        "filter": ["**/*.ttf"]
+        "filter": [
+          "**/*.ttf"
+        ]
       }
     ],
     "win": {
       "target": [
-        { "target": "portable", "arch": ["x64"] }
-      ],
-      "icon": "public/icon.png"
-    },
-    "_win_nsis_commented": "Remove the portable target above and uncomment the nsis target below when building natively on Windows",
-    "_win_nsis": {
-      "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "public/icon.png"
     },
     "linux": {
       "target": [
-        { "target": "AppImage", "arch": ["x64"] }
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "category": "Video",
       "icon": "public/icon.png"
@@ -90,5 +98,17 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
+  },
+  "_win_nsis_note": "To use NSIS installer (native Windows builds only), replace win.target portable with the nsis target below",
+  "_win_nsis": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ],
+    "icon": "public/icon.png"
   }
 }

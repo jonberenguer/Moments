@@ -165,8 +165,6 @@ function ClipPanel({ clip, onUpdate, globalTransition, onGlobalTransitionChange,
             {[
               {value:'',          label:'None',      icon:'◻'},
               {value:'ken_burns', label:'Ken Burns',  icon:'⤢'},
-              {value:'pan_zoom',  label:'Pan & Zoom', icon:'⊕'},
-              {value:'parallax',  label:'3D Parallax',icon:'◈'},
               {value:'fade_in',   label:'Fade In',    icon:'◑'},
             ].map(e=>(
               <button key={e.value}

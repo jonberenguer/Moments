@@ -70,33 +70,21 @@ function buildEqFilter(brightness, contrast, saturation) {
 
 function buildImageEffectVf(effect, W, H, duration) {
   if (!effect || effect === 'none') return null
-  const fps    = 25
+  const fps    = SEG_FPS
   const frames = Math.max(2, Math.ceil(duration * fps))
   switch (effect) {
     case 'ken_burns': {
       const z = `1+(0.18*on/${frames})`
       const x = `(iw/2-(iw/zoom/2))-(iw*0.03*on/${frames})`
       const y = `(ih/2-(ih/zoom/2))-(ih*0.02*on/${frames})`
-      return `fps=${fps},scale=${W*1.25|0}:${H*1.25|0},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${W}x${H}:fps=${fps}`
-    }
-    case 'pan_zoom': {
-      const z = `1+(0.12*sin(PI*on/${frames}))`
-      const x = `(iw/2-(iw/zoom/2))-(iw*0.04*sin(PI*on/${frames}))`
-      const y = `ih/2-(ih/zoom/2)`
-      return `fps=${fps},scale=${W*1.25|0}:${H*1.25|0},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${W}x${H}:fps=${fps}`
-    }
-    case 'parallax': {
-      const z = `1.08+(0.02*sin(2*PI*on/${frames}))`
-      const x = `(iw/2-(iw/zoom/2))+(iw*0.02*sin(2*PI*on/${frames}))`
-      const y = `(ih/2-(ih/zoom/2))-(ih*0.01*cos(2*PI*on/${frames}))`
-      return `fps=${fps},scale=${W*1.25|0}:${H*1.25|0},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${W}x${H}:fps=${fps}`
+      return `scale=${W*2|0}:${H*2|0},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${W}x${H}:fps=${fps}`
     }
     case 'fade_in': {
       const z    = `1.04-(0.04*on/${frames})`
       const x    = `iw/2-(iw/zoom/2)`
       const y    = `ih/2-(ih/zoom/2)`
       const fade = Math.min(1.2, duration * 0.4).toFixed(2)
-      return `fps=${fps},scale=${W*1.1|0}:${H*1.1|0},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${W}x${H}:fps=${fps},fade=t=in:st=0:d=${fade}`
+      return `scale=${W*2|0}:${H*2|0},zoompan=z='${z}':x='${x}':y='${y}':d=${frames}:s=${W}x${H}:fps=${fps},fade=t=in:st=0:d=${fade}`
     }
     default: return null
   }
@@ -402,16 +390,24 @@ export function useFFmpeg() {
         pushLog(`\n  ┌─ [${i+1}/${validClips.length}] "${c.name}" — ${c._isImg ? 'IMAGE' : 'VIDEO'} — ${actualDur.toFixed(2)}s`)
 
         if (c._isImg) {
-          // ── IMAGE: placement + optional effect/EQ in one pass ────────
+          // Compute effect vf once — used by both the blur and non-blur paths.
+          const effectVf = buildImageEffectVf(c.imageEffect, W, H, actualDur)
 
           if (c.blurBackground) {
-            // ── BLUR BACKGROUND: single-pass filter_complex ─────────────
+            // ── BLUR BACKGROUND ──────────────────────────────────────────
             // bg: scale source to FILL canvas → crop centre → boxblur → [_bg]
-            // fg: scale source to FIT canvas (letterboxed, NO padding) → even-align → [_feven]
-            //     The fg stays at its natural letterbox size (e.g. 960×720 for 4:3 in 16:9).
-            //     overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2 centres it over the blur.
-            //     The blurred bg shows through the letterbox bars naturally.
-            // NOTE: do NOT pad the fg to W×H — that makes overlay_w=main_w → offset=0 → blur hidden.
+            // fg: scale source to FIT canvas (letterboxed, NO padding) → [_feven]
+            //     overlay centres fg over blur; blurred bg shows through bars.
+            // NOTE: do NOT pad fg to W×H — that collapses the overlay offset to 0.
+            //
+            // When imageEffect is also set we need two separate FFmpeg passes:
+            //   pass A  blur filter_complex  → img_base_i.mp4  (W×H, 30fps CFR)
+            //   pass B  -vf effectVf         → seg_i.mp4
+            // Combining filter_complex + a zoompan -vf in one command isn't
+            // possible; splitting into two passes also lets zoompan see a proper
+            // 30fps video input so its `on` frame counter advances correctly.
+            const blurOut = effectVf ? `img_base_${i}.mp4` : segFile
+
             const fgNodes = [
               `[_fg0]scale=${W}:${H}:force_original_aspect_ratio=decrease[_ffit]`,
               `[_ffit]scale=trunc(iw/2)*2:trunc(ih/2)*2[_feven]`,
@@ -428,7 +424,7 @@ export function useFFmpeg() {
             ].join(';')
 
             steps.push({
-              label: `img-place[${i}]`,
+              label: `img-blur[${i}]`,
               args: [
                 '-loop', '1', '-i', fp(c._fname),
                 '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
@@ -439,35 +435,49 @@ export function useFFmpeg() {
                 '-r', String(SEG_FPS), '-fps_mode', 'cfr',
                 '-video_track_timescale', String(SEG_TIMEBASE),
                 '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
-                '-t', durStr, '-y', fp(segFile),
+                '-t', durStr, '-y', fp(blurOut),
               ],
             })
+
+            if (effectVf) {
+              // ── EFFECT pass (reads blur output, writes seg) ──────────
+              // Input is an already-encoded 30fps CFR video — no -r needed.
+              // eq was already applied in the blur pass so only effectVf here.
+              steps.push({
+                label: `img-effect[${i}]`,
+                args: [
+                  '-i', fp(blurOut),
+                  '-vf', effectVf,
+                  '-map', '0:v:0', '-map', '0:a:0',
+                  '-t', durStr,
+                  '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                  '-r', String(SEG_FPS), '-fps_mode', 'cfr',
+                  '-video_track_timescale', String(SEG_TIMEBASE),
+                  '-c:a', 'copy',
+                  '-t', durStr, '-y', fp(segFile),
+                ],
+              })
+            }
+
             segments.push({ file: segFile, actualDur, clip: c })
             continue
           }
 
           // ── Non-blur: fit → pad → optional effect/EQ ─────────────────
-          const placeFc = [
-            `[0:v]scale=${W}:${H}:force_original_aspect_ratio=decrease[_fit]`,
-            `[_fit]scale=trunc(iw/2)*2:trunc(ih/2)*2[_even]`,
-            `[_even]pad=${W}:${H}:-1:-1:color=black[_padded]`,
-            `[_padded]setsar=1[vout]`,
-          ].join(';')
-          let termFc    = placeFc
-          let termLabel = '[vout]'
-          const effectVf = buildImageEffectVf(c.imageEffect, W, H, actualDur)
-          if (effectVf || eqFilter) {
-            termFc    = `${placeFc};${termLabel}${[effectVf, eqFilter].filter(Boolean).join(',')}[vfinal]`
-            termLabel = '[vfinal]'
-          }
+          // Use -vf (simple filtergraph) with -r as input option so the image
+          // loop generates frames at the correct rate before reaching zoompan.
+          // Embedding effectVf inside filter_complex caused zoompan's `on`
+          // counter to not advance, producing a static (no animation) output.
+          const placeVf = `scale=${W}:${H}:force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2,pad=${W}:${H}:-1:-1:color=black,setsar=1`
+          const vfChain = [placeVf, effectVf, eqFilter].filter(Boolean).join(',')
 
           steps.push({
             label: `img-place[${i}]`,
             args: [
-              '-loop', '1', '-i', fp(c._fname),
+              '-loop', '1', '-r', String(SEG_FPS), '-i', fp(c._fname),
               '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
-              '-filter_complex', termFc,
-              '-map', termLabel, '-map', '1:a',
+              '-vf', vfChain,
+              '-map', '0:v:0', '-map', '1:a:0',
               '-t', durStr,
               '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
               '-r', String(SEG_FPS), '-fps_mode', 'cfr',

@@ -60,5 +60,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 
   // ── Window controls ───────────────────────────────────────────────────────
-  closeApp: () => ipcRenderer.invoke('app:close'),
+  closeApp:    () =>    ipcRenderer.invoke('app:close'),
+  startResize: (dir) => ipcRenderer.send('window:startResize', dir),
+  stopResize:  ()    => ipcRenderer.send('window:stopResize'),
 })

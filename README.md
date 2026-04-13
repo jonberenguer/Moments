@@ -124,6 +124,60 @@ To produce a full NSIS installer with start menu shortcuts, build natively on a 
 
 ---
 
+## Docker Build Environment
+
+A `Dockerfile` is included for building the app from any Linux host without polluting your local environment. The image bundles:
+
+- **Node.js 20** (slim base)
+- **Wine + Mono** — required for cross-compiling the Windows portable exe from Linux
+- **Electron binary pre-cached** — downloads and caches the Electron zip at image-build time so `npm install` inside the container does not re-download it on every run
+
+### 1 — Build the image
+
+Run this once from the repository root. The image tag must match the one used in the run commands below.
+
+```bash
+docker build -t electron-app:builtin-packages .
+```
+
+> The build step downloads the Electron binary (~100 MB) and installs npm dependencies into the image layer. Subsequent runs reuse the cache and are fast.
+
+### 2 — Run a build
+
+The project directory is mounted as a volume so build output lands directly in `dist-electron/` on the host. FFmpeg binaries must already be present in `bin/` before running (see [FFmpeg Setup](#ffmpeg-setup)).
+
+**Linux AppImage:**
+```bash
+docker run --rm -it \
+  -v $(pwd):/app \
+  -w /app \
+  electron-app:builtin-packages /bin/bash -c "npm install && npm run build:linux"
+```
+
+**Windows portable exe** (cross-compiled via Wine):
+```bash
+docker run --rm -it \
+  -v $(pwd):/app \
+  -w /app \
+  electron-app:builtin-packages /bin/bash -c "npm install && npm run build:win"
+```
+
+**Both targets in one pass:**
+```bash
+docker run --rm -it \
+  -v $(pwd):/app \
+  -w /app \
+  electron-app:builtin-packages /bin/bash -c "npm install && npm run build:all"
+```
+
+### Notes
+
+- `npm install` is run inside the container on each invocation because native addons must be compiled for the container's glibc, not the host's. The installed `node_modules` are written into the mounted volume and will appear on the host — this is expected.
+- Build output is written to `dist-electron/` in the mounted volume, so the AppImage / exe are immediately accessible on the host after the container exits.
+- The `--rm` flag removes the container after each run. No state is kept between runs except what is written back through the volume mount.
+
+---
+
 ## GPU Acceleration
 
 ### How it works

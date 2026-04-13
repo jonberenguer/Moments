@@ -57,22 +57,14 @@ npm run dev   # starts Vite on :5173 + Electron
 
 ---
 
-## ⚠️ Project Naming Convention — CRITICAL
+## ⚠️ Project Naming Convention
 
-**The application root directory and zip package must always be named `moments-app` with no suffix.**
-
-- ✅ Correct: `moments-app/`, `moments-app.zip`
-- ❌ Wrong: `moments-app-v2/`, `moments-app-fixed/`, `moments-app-v2.1/`, `moments-app.zip` containing a `moments-app-v2/` subfolder
-
-When packaging for delivery:
-
-```bash
-cd /path/to/clean-package
-zip -rq moments-app.zip moments-app/
-```
+The application root directory is named `moments-app`. No packaging or zip delivery is required.
 
 ## claude code
-When working under claude code, review the content as is.
+- All work is done within this project folder (`/home/sysoper/workspace/jb-gh/Moments`). Do not create files outside this directory.
+- No packaging or zip creation is needed. Do not run `npm run build`, `npm run build:linux`, `npm run build:win`, or any installer/zip packaging commands.
+- Review and edit files in place as they exist in this repository.
 
 ---
 
@@ -334,7 +326,7 @@ Single custom hook. `App.jsx` calls it once and passes slices down as props — 
   viewPanY:         number,       // Retained for workflow backward compat — ignored by export
   includeAudio:     boolean,
   blurBackground:   boolean,
-  imageEffect:      string | null,// 'ken_burns'|'pan_zoom'|'parallax'|'fade_in'|null
+  imageEffect:      string | null,// 'ken_burns'|'fade_in'|null
   mediaId:          string,
   _needsMedia:      boolean,      // True after workflow load — cleared when file is re-added by name match
 }

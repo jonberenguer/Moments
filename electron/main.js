@@ -5,7 +5,7 @@
  * Platform: Linux + Windows only
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron')
 const path   = require('path')
 const fs     = require('fs')
 const os     = require('os')
@@ -152,6 +152,10 @@ function createWindow() {
   }
 
   mainWindow.on('closed', () => { mainWindow = null })
+
+  mainWindow.webContents.on('devtools-opened', () => {
+    mainWindow.webContents.closeDevTools()
+  }) 
 }
 
 app.whenReady().then(createWindow)
@@ -171,6 +175,49 @@ ipcMain.handle('gpu:reset', () => {
 // ─── IPC: App close ───────────────────────────────────────────────────────────
 ipcMain.handle('app:close', () => {
   if (mainWindow) mainWindow.close()
+})
+
+// ─── IPC: Window resize (custom thick resize border) ─────────────────────────
+// The renderer renders invisible 8 px strips at all window edges.
+// On mousedown the renderer calls startResize(dir); we poll the cursor at ~60 fps
+// and update window bounds until stopResize is received or the window closes.
+let resizeInterval = null
+
+ipcMain.on('window:startResize', (_, direction) => {
+  if (!mainWindow) return
+  // Clear any stale interval from a prior drag that didn't cleanly stop
+  if (resizeInterval) { clearInterval(resizeInterval); resizeInterval = null }
+
+  const startBounds = mainWindow.getBounds()
+  const startCursor = screen.getCursorScreenPoint()
+  const minW = 1100, minH = 700
+
+  resizeInterval = setInterval(() => {
+    if (!mainWindow) { clearInterval(resizeInterval); resizeInterval = null; return }
+
+    const cur = screen.getCursorScreenPoint()
+    const dx  = cur.x - startCursor.x
+    const dy  = cur.y - startCursor.y
+
+    let { x, y, width, height } = startBounds
+
+    if (direction.includes('e')) width  = Math.max(minW, startBounds.width  + dx)
+    if (direction.includes('s')) height = Math.max(minH, startBounds.height + dy)
+    if (direction.includes('w')) {
+      width = Math.max(minW, startBounds.width - dx)
+      x     = startBounds.x + startBounds.width - width
+    }
+    if (direction.includes('n')) {
+      height = Math.max(minH, startBounds.height - dy)
+      y      = startBounds.y + startBounds.height - height
+    }
+
+    mainWindow.setBounds({ x, y, width, height })
+  }, 16) // ~60 fps
+})
+
+ipcMain.on('window:stopResize', () => {
+  if (resizeInterval) { clearInterval(resizeInterval); resizeInterval = null }
 })
 
 // ─── Persistent preferences ───────────────────────────────────────────────────
