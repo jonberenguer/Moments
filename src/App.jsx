@@ -20,22 +20,33 @@ export default function App() {
   const [exportStartedAt,   setExportStartedAt]   = useState(null)
   const [exportCompletedAt, setExportCompletedAt] = useState(null)
   const [showLogs,    setShowLogs]    = useState(false)
+  const [ffmpegStatus, setFfmpegStatus] = useState({ available: true, path: null })
 
   const storeRef   = useRef(store)
   const ffmpegRef  = useRef(ffmpeg)
   storeRef.current  = store
   ffmpegRef.current = ffmpeg
 
-  // Stop any in-progress resize when the mouse button is released anywhere
-  // (including outside the resize handle div, or when the window loses focus).
+  // Undo/redo keyboard shortcuts. Ignored while typing in a field.
   useEffect(() => {
-    const stop = () => window.electronAPI?.stopResize?.()
-    document.addEventListener('mouseup', stop)
-    window.addEventListener('blur', stop)
-    return () => {
-      document.removeEventListener('mouseup', stop)
-      window.removeEventListener('blur', stop)
+    const onKey = (e) => {
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === 'z' && !e.shiftKey)            { e.preventDefault(); storeRef.current.undo() }
+      else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); storeRef.current.redo() }
     }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Reflect a missing FFmpeg binary in the UI (disables Export with a warning)
+  // rather than a blocking native dialog.
+  useEffect(() => {
+    window.electronAPI?.checkFFmpeg?.()
+      .then(r => { if (r) setFfmpegStatus({ available: !!r.available, path: r.path || null }) })
+      .catch(() => {})
   }, [])
 
   const handleExportOpen = useCallback(() => {
@@ -89,22 +100,8 @@ export default function App() {
     if (item) storeRef.current.addLibraryItemToTimeline(item)
   }, [])
 
-  const RESIZE_DIRS = ['n','ne','e','se','s','sw','w','nw']
-
   return (
     <div className={styles.app}>
-      {window.electronAPI?.isElectron && (
-        <div className={styles.resizeBorder} aria-hidden="true">
-          {RESIZE_DIRS.map(dir => (
-            <div
-              key={dir}
-              data-dir={dir}
-              className={styles.resizeHandle}
-              onMouseDown={e => { e.preventDefault(); window.electronAPI.startResize(dir) }}
-            />
-          ))}
-        </div>
-      )}
       <Topbar
         title={store.momentTitle} onTitleChange={store.setMomentTitle}
         onExport={handleExportOpen}
@@ -113,6 +110,8 @@ export default function App() {
         aspectRatio={store.aspectRatio} onAspectRatioChange={store.setAspectRatio}
         quality={store.quality} onQualityChange={store.setQuality}
         onSaveWorkflow={store.saveWorkflow} onLoadWorkflow={handleLoadWorkflow}
+        onUndo={store.undo} onRedo={store.redo} canUndo={store.canUndo} canRedo={store.canRedo}
+        ffmpegMissing={!ffmpegStatus.available} ffmpegPath={ffmpegStatus.path}
         showLogs={showLogs} onToggleLogs={() => setShowLogs(v=>!v)}
         exportDone={exportState==='done'} outputUrl={outputUrl}
         outputName={store.momentTitle.replace(/\s+/g,'_')+'.mp4'}
@@ -132,6 +131,7 @@ export default function App() {
           musicFile={store.musicFile}
           onMusicFile={store.setMusicFile}
           onMusicDuration={store.setMusicDuration}
+          musicNeedsRelink={!store.musicFile ? store.musicFileName : null}
         />
 
         <div className={styles.center}>
@@ -141,11 +141,15 @@ export default function App() {
             onSelectClip={handleSelectClip}
             isPlaying={store.isPlaying}
             onPlayToggle={() => store.setIsPlaying(p=>!p)}
+            onSeek={store.setCurrentTime}
             getClipTransition={store.getClipTransition}
             aspectRatio={store.aspectRatio}
             textSegments={store.textSegments}
             onUpdateTextSegment={store.updateTextSegment}
-          />
+            clipPlayLen={store.clipPlayLen}
+            timelineDuration={store.timelineDuration}
+            timeline={store.timeline}
+          />{/* currentTime not passed — Preview subscribes to the playhead store directly */}
 
           <Timeline
             clips={store.clips}
@@ -159,6 +163,10 @@ export default function App() {
             getClipTransition={store.getClipTransition}
             totalDuration={store.totalDuration}
             exportDuration={store.exportDuration}
+            timelineDuration={store.timelineDuration}
+            clipPlayLen={store.clipPlayLen}
+            timeline={store.timeline}
+            onSeek={store.setCurrentTime}
             textSegments={store.textSegments}
             onAddTextSegment={store.addTextSegment}
             onSelectTextSegment={store.selectTextSegment}

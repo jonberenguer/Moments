@@ -38,6 +38,15 @@ const SEG_AUD_RATE  = 44100
 const SEG_AUD_KBPS  = '128k'
 
 export const PRESET_FONTS = [
+  // Video-style display & sans faces (OFL / Google Fonts)
+  { key: 'BebasNeue-Regular',       label: 'Bebas Neue',       file: 'BebasNeue-Regular.ttf',      cssFamily: 'MomBebas' },
+  { key: 'Anton-Regular',           label: 'Anton',            file: 'Anton-Regular.ttf',          cssFamily: 'MomAnton' },
+  { key: 'Oswald-Regular',          label: 'Oswald',           file: 'Oswald-Regular.ttf',         cssFamily: 'MomOswald' },
+  { key: 'Montserrat-Regular',      label: 'Montserrat',       file: 'Montserrat-Regular.ttf',     cssFamily: 'MomMontserrat' },
+  { key: 'Montserrat-Bold',         label: 'Montserrat Bold',  file: 'Montserrat-Bold.ttf',        cssFamily: 'MomMontserratBold' },
+  { key: 'Roboto-Regular',          label: 'Roboto',           file: 'Roboto-Regular.ttf',         cssFamily: 'MomRoboto' },
+  { key: 'Roboto-Bold',             label: 'Roboto Bold',      file: 'Roboto-Bold.ttf',            cssFamily: 'MomRobotoBold' },
+  // Original bundled faces
   { key: 'Poppins-Regular',         label: 'Poppins',      file: 'Poppins-Regular.ttf',        cssFamily: 'MomPoppins' },
   { key: 'Poppins-Bold',            label: 'Poppins Bold', file: 'Poppins-Bold.ttf',           cssFamily: 'MomPoppinsBold' },
   { key: 'LiberationSans-Regular',  label: 'Sans',         file: 'LiberationSans-Regular.ttf', cssFamily: 'MomSans' },
@@ -52,8 +61,12 @@ export function loadPreviewFont(fontKey) {
   if (_loadedFonts.has(fontKey)) return
   const preset = PRESET_FONTS.find(f => f.key === fontKey)
   if (!preset) return
+  // Base-relative URL: an absolute '/ffmpeg/…' path 404s in the packaged app,
+  // which loads from file://…/dist/index.html (vite base is './'). Using
+  // BASE_URL resolves correctly in both `npm run dev` and the built app.
+  const base = import.meta.env.BASE_URL || './'
   const style = document.createElement('style')
-  style.textContent = `@font-face{font-family:'${preset.cssFamily}';src:url('/ffmpeg/fonts/${preset.file}') format('truetype');font-display:block;}`
+  style.textContent = `@font-face{font-family:'${preset.cssFamily}';src:url('${base}ffmpeg/fonts/${preset.file}') format('truetype');font-display:swap;}`
   document.head.appendChild(style)
   document.fonts.load(`12px '${preset.cssFamily}'`)
   _loadedFonts.add(fontKey)
@@ -91,9 +104,9 @@ function buildImageEffectVf(effect, W, H, duration) {
 }
 
 function buildDrawtext(seg, W, H, fontPath) {
-  // Scale fontSize from the design base (28px at preview) to export canvas width.
+  // Scale fontSize from the design base to export canvas width.
   // The Inspector stores fontSize in "preview px" units; export scales to W/1280 reference.
-  const fontSize  = Math.round((seg.fontSize || 28) * (W / 1280))
+  const fontSize  = Math.round((seg.fontSize || 60) * (W / 1280))
   const color     = (seg.color || '#ffffff').replace('#', '')
 
   // Resolve x/y from position preset or custom posX/posY percentages.
@@ -149,6 +162,19 @@ function buildDrawtext(seg, W, H, fontPath) {
   } else {
     alphaExpr = '1'
   }
+  // Constant per-caption opacity (0–100 → 0–1) multiplied into the alpha so it
+  // composes with the fade animation. Mirrors the preview's CSS opacity.
+  const opacity = Math.max(0, Math.min(1, (seg.opacity ?? 100) / 100))
+  if (opacity < 1) alphaExpr = `(${alphaExpr})*${opacity.toFixed(3)}`
+  // Optional drop shadow (hard offset; no blur in drawtext). Offset scales with
+  // font size so it looks consistent across resolutions.
+  const shadowPart = seg.shadow === false
+    ? ''
+    : `:shadowcolor=black@0.75:shadowx=${Math.max(1, Math.round(fontSize * 0.06))}:shadowy=${Math.max(1, Math.round(fontSize * 0.06))}`
+  // Optional outline (border) around the glyphs — crisper than the shadow.
+  const borderPart = seg.outline
+    ? `:borderw=${Math.max(1, Math.round(fontSize * 0.04))}:bordercolor=black`
+    : ''
   // Escape the font path for FFmpeg's drawtext filter syntax.
   // Rules (applied in order):
   //   1. Normalise backslashes to forward slashes (FFmpeg accepts both on Windows)
@@ -162,7 +188,7 @@ function buildDrawtext(seg, W, H, fontPath) {
     .replace(/'/g, "\\'")         // escape single quotes
   return (
     `drawtext=fontfile='${escapedPath}':text='${safeText}':` +
-    `fontsize=${fontSize}:fontcolor=${color}:x=${x}:y=${y}:` +
+    `fontsize=${fontSize}:fontcolor=${color}${shadowPart}${borderPart}:x=${x}:y=${y}:` +
     `alpha='${alphaExpr}':enable='between(t,${tStart},${tEnd})'`
   )
 }
@@ -300,6 +326,13 @@ export function useFFmpeg() {
     const steps   = []
     const segments = []
     const td       = Math.max(0.1, transitionDuration)
+    // Per-clip transition duration (after this clip); falls back to the global
+    // `td`. Returns 0 when the boundary is a hard cut ('none'). Mirrors the
+    // store's exportDuration / timeline math so preview length == export length.
+    const tdFor = (clip) => {
+      const t = clip?.transition || globalTransition
+      return t === 'none' ? 0 : Math.max(0.1, clip?.transitionDuration ?? td)
+    }
 
     // Subscribe to IPC events for real-time logging
     const unsubLog     = api.onLog(({ line }) => pushLog(`  ${line}`))
@@ -371,18 +404,22 @@ export function useFFmpeg() {
       // ══════════════════════════════════════════════════════════════════
       pushLog('── Stage 1: Encoding clips ──')
 
+      // Longest transition in use — every segment is padded to at least this
+      // (+0.5s) so per-clip xfades always have room to overlap on both sides.
+      const maxTd = validClips.reduce((m, c) => Math.max(m, tdFor(c)), td)
+
       for (let i = 0; i < validClips.length; i++) {
         const c = validClips[i]
         const eqFilter = buildEqFilter(c.brightness, c.contrast, c.saturation)
 
         let actualDur
         if (c._isImg) {
-          actualDur = Math.max(td + 0.5, c.duration || 4)
+          actualDur = Math.max(maxTd + 0.5, c.duration || 4)
         } else {
           const spd = c.speed > 0 ? c.speed : 1
           const ts  = c.trimStart || 0
           const te  = (c.trimEnd && c.trimEnd > ts) ? c.trimEnd : (c.fileDuration || c.duration || 4)
-          actualDur = Math.max(td + 0.5, (te - ts) / spd)
+          actualDur = Math.max(maxTd + 0.5, (te - ts) / spd)
         }
         const durStr  = actualDur.toFixed(4)
         const segFile = `seg_${i}.mp4`
@@ -644,9 +681,10 @@ export function useFFmpeg() {
             timeOff += segments[i].actualDur
           } else {
             const xfName = XFADE_MAP[ct] || 'fade'
-            timeOff += segments[i].actualDur - td
-            vParts.push(`${vLabel}[${i+1}:v]xfade=transition=${xfName}:duration=${td}:offset=${timeOff.toFixed(4)}${vOut}`)
-            aParts.push(`${aLabel}[${i+1}:a]acrossfade=d=${td.toFixed(4)}${aOut}`)
+            const tdi    = tdFor(segments[i].clip)   // per-clip duration, falls back to global
+            timeOff += segments[i].actualDur - tdi
+            vParts.push(`${vLabel}[${i+1}:v]xfade=transition=${xfName}:duration=${tdi}:offset=${timeOff.toFixed(4)}${vOut}`)
+            aParts.push(`${aLabel}[${i+1}:a]acrossfade=d=${tdi.toFixed(4)}${aOut}`)
           }
           vLabel = vOut; aLabel = aOut
         }
@@ -703,6 +741,15 @@ export function useFFmpeg() {
             '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
             '-c:a', 'copy', '-y', fp('output.mp4'),
           ],
+          // If the bundled FFmpeg lacks the `drawtext` filter (e.g. johnvansickle
+          // static builds, which omit it despite enabling libfreetype), the text
+          // pass fails. Rather than abort the whole export, fall back to copying
+          // the video through without overlays and surface a clear message.
+          fallbackOnFail: {
+            label: 's3-text-fallback',
+            args: ['-i', fp(preFinal), '-c', 'copy', '-y', fp('output.mp4')],
+            message: '  ↳ text overlays skipped — this FFmpeg build has no "drawtext" filter. Use a BtbN/libfreetype build to render text.',
+          },
         })
       } else {
         steps.push({ label: 's3-copy', args: ['-i', fp(preFinal), '-c', 'copy', '-y', fp('output.mp4')] })
@@ -714,7 +761,7 @@ export function useFFmpeg() {
       const outputFile = endFadeVideo || endFadeAudio ? 'output_final.mp4' : 'output.mp4'
       if (endFadeVideo || endFadeAudio) {
         const totalEncDur = segments.reduce((s, x) => s + x.actualDur, 0)
-          - (segments.length > 1 ? (segments.length - 1) * td : 0)
+          - segments.slice(0, -1).reduce((s, x) => s + tdFor(x.clip), 0)
         const vfd = Math.min(endFadeVideoDuration, totalEncDur)
         const afd = Math.min(endFadeAudioDuration, totalEncDur)
         const fadeArgs = ['-i', fp('output.mp4')]

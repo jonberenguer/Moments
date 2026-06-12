@@ -5,7 +5,7 @@
  * Platform: Linux + Windows only
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
 const path   = require('path')
 const fs     = require('fs')
 const os     = require('os')
@@ -13,16 +13,31 @@ const { spawn, execSync } = require('child_process')
 
 // ─── FFmpeg binary path ───────────────────────────────────────────────────────
 // In production: bundled inside resources/ffmpeg/
-// In dev: picked from PATH or a local bin/ folder
+// In dev: the per-platform binary under bin/<win|linux>/ (same one that gets
+//         packaged), falling back to PATH only if it isn't there.
 function getFFmpegPath() {
+  const ext = process.platform === 'win32' ? '.exe' : ''
   if (app.isPackaged) {
-    const ext = process.platform === 'win32' ? '.exe' : ''
     return path.join(process.resourcesPath, 'ffmpeg', `ffmpeg${ext}`)
   }
-  // Dev: try local bin first, then fallback to PATH
-  const localBin = path.join(__dirname, '..', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg')
+  const subdir   = process.platform === 'win32' ? 'win' : 'linux'
+  const localBin = path.join(__dirname, '..', 'bin', subdir, `ffmpeg${ext}`)
   if (fs.existsSync(localBin)) return localBin
   return 'ffmpeg'  // from PATH
+}
+
+// The bare 'ffmpeg' (PATH fallback) is assumed present; a resolved file path is
+// considered available only if it exists on disk.
+function ffmpegAvailable(bin) {
+  return bin === 'ffmpeg' || fs.existsSync(bin)
+}
+
+// Restore the executable bit on POSIX — extraResources / source checkouts can
+// drop it, which would make spawn fail with EACCES on Linux. Best-effort.
+function ensureFFmpegExecutable(bin) {
+  if (bin !== 'ffmpeg' && process.platform !== 'win32' && fs.existsSync(bin)) {
+    try { fs.chmodSync(bin, 0o755) } catch { /* ignore */ }
+  }
 }
 
 // ─── GPU detection ────────────────────────────────────────────────────────────
@@ -40,6 +55,7 @@ async function detectGPUCapabilities() {
   }
 
   const ffmpeg = getFFmpegPath()
+  ensureFFmpegExecutable(ffmpeg)
 
   try {
     // Ask FFmpeg which HW encoders are compiled in
@@ -124,6 +140,7 @@ function encoderQualityArgs(encoder) {
 
 // ─── Window ───────────────────────────────────────────────────────────────────
 let mainWindow
+let forceClose = false   // set true once the user confirms exit
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -132,8 +149,13 @@ function createWindow() {
     minWidth:  1100,
     minHeight: 700,
     backgroundColor: '#0f0f0f',
+    // Keep the native window frame (so resize / maximize / restore / Aero-snap
+    // all work) but hide the title bar so we can draw our own. On Windows the
+    // overlay paints native min/max/close buttons over the top-right corner.
     titleBarStyle: process.platform === 'linux' ? 'default' : 'hidden',
-    frame: process.platform === 'linux',
+    ...(process.platform === 'win32'
+      ? { titleBarOverlay: { color: '#15151a', symbolColor: '#e8c96a', height: 48 } }
+      : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -151,16 +173,53 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
   }
 
+  // Surface a failed renderer load instead of a silent white screen.
+  mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDesc, validatedURL) => {
+    if (errorCode === -3) return  // ERR_ABORTED — benign (e.g. cancelled navigation)
+    console.error(`Renderer failed to load (${errorCode}): ${errorDesc} ${validatedURL}`)
+    dialog.showErrorBox('Moments — failed to load',
+      `The app interface could not be loaded.\n\n${errorDesc} (${errorCode})\n${validatedURL || ''}`)
+  })
+
   mainWindow.on('closed', () => { mainWindow = null })
+
+  // Intercept the native close (X button / Alt+F4) to ask the renderer for an
+  // exit confirmation. forceClose (set by app:forceClose) lets it through.
+  mainWindow.on('close', (e) => {
+    if (forceClose || !mainWindow) return
+    e.preventDefault()
+    mainWindow.webContents.send('app:confirm-close')
+  })
 
   mainWindow.webContents.on('devtools-opened', () => {
     mainWindow.webContents.closeDevTools()
-  }) 
+  })
 }
 
-app.whenReady().then(createWindow)
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
-app.on('activate', () => { if (!mainWindow) createWindow() })
+// Single-instance lock: a second launch focuses the existing window instead of
+// spinning up a rival process that fights over prefs.json / temp export dirs.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+  app.whenReady().then(createWindow)
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+  app.on('activate', () => { if (!mainWindow) createWindow() })
+}
+
+// ─── IPC: FFmpeg availability ─────────────────────────────────────────────────
+// The renderer queries this on launch to reflect a missing binary in the UI
+// (disabled Export + warning) instead of a blocking native dialog.
+ipcMain.handle('ffmpeg:check', () => {
+  const bin = getFFmpegPath()
+  ensureFFmpegExecutable(bin)
+  return { available: ffmpegAvailable(bin), path: bin }
+})
 
 // ─── IPC: GPU detection ───────────────────────────────────────────────────────
 ipcMain.handle('gpu:detect', async () => {
@@ -173,51 +232,12 @@ ipcMain.handle('gpu:reset', () => {
 })
 
 // ─── IPC: App close ───────────────────────────────────────────────────────────
-ipcMain.handle('app:close', () => {
+// Native resize/maximize/restore/snap are handled by the OS now; the renderer
+// only confirms exit. The window 'close' handler asks the renderer, which calls
+// this once the user confirms.
+ipcMain.handle('app:forceClose', () => {
+  forceClose = true
   if (mainWindow) mainWindow.close()
-})
-
-// ─── IPC: Window resize (custom thick resize border) ─────────────────────────
-// The renderer renders invisible 8 px strips at all window edges.
-// On mousedown the renderer calls startResize(dir); we poll the cursor at ~60 fps
-// and update window bounds until stopResize is received or the window closes.
-let resizeInterval = null
-
-ipcMain.on('window:startResize', (_, direction) => {
-  if (!mainWindow) return
-  // Clear any stale interval from a prior drag that didn't cleanly stop
-  if (resizeInterval) { clearInterval(resizeInterval); resizeInterval = null }
-
-  const startBounds = mainWindow.getBounds()
-  const startCursor = screen.getCursorScreenPoint()
-  const minW = 1100, minH = 700
-
-  resizeInterval = setInterval(() => {
-    if (!mainWindow) { clearInterval(resizeInterval); resizeInterval = null; return }
-
-    const cur = screen.getCursorScreenPoint()
-    const dx  = cur.x - startCursor.x
-    const dy  = cur.y - startCursor.y
-
-    let { x, y, width, height } = startBounds
-
-    if (direction.includes('e')) width  = Math.max(minW, startBounds.width  + dx)
-    if (direction.includes('s')) height = Math.max(minH, startBounds.height + dy)
-    if (direction.includes('w')) {
-      width = Math.max(minW, startBounds.width - dx)
-      x     = startBounds.x + startBounds.width - width
-    }
-    if (direction.includes('n')) {
-      height = Math.max(minH, startBounds.height - dy)
-      y      = startBounds.y + startBounds.height - height
-    }
-
-    mainWindow.setBounds({ x, y, width, height })
-  }, 16) // ~60 fps
-})
-
-ipcMain.on('window:stopResize', () => {
-  if (resizeInterval) { clearInterval(resizeInterval); resizeInterval = null }
 })
 
 // ─── Persistent preferences ───────────────────────────────────────────────────
@@ -315,6 +335,10 @@ ipcMain.handle('ffmpeg:export', async (event, payload) => {
   fs.mkdirSync(tempDir, { recursive: true })
 
   const ffmpeg = getFFmpegPath()
+  ensureFFmpegExecutable(ffmpeg)
+  if (!ffmpegAvailable(ffmpeg)) {
+    return { ok: false, error: `FFmpeg binary not found at "${ffmpeg}". Run "node scripts/download-ffmpeg.js" to install it.` }
+  }
   const caps   = await detectGPUCapabilities()
   const enc    = resolveEncoder(caps, encoderOverride)
   const encArgs = encoderQualityArgs(enc.encoder)
@@ -375,7 +399,12 @@ ipcMain.handle('ffmpeg:export', async (event, payload) => {
 
       proc.on('error', err => {
         currentProc = null
-        reject(new Error(`FFmpeg spawn error [${label}]: ${err.message}`))
+        const hint = err.code === 'ENOENT'
+          ? ` — FFmpeg binary not found at "${ffmpeg}". Run "node scripts/download-ffmpeg.js" to install it.`
+          : err.code === 'EACCES'
+            ? ` — FFmpeg binary at "${ffmpeg}" is not executable.`
+            : ''
+        reject(new Error(`FFmpeg failed to start [${label}]: ${err.message}${hint}`))
       })
     })
   }
@@ -411,7 +440,7 @@ ipcMain.handle('ffmpeg:export', async (event, payload) => {
         await runFFmpeg(step.label, resolveArgs(step.args))
       } catch (err) {
         if (step.fallbackOnFail) {
-          event.sender.send('ffmpeg:log', { jobId, line: '  ↳ no audio stream — substituting silence', label: step.label })
+          event.sender.send('ffmpeg:log', { jobId, line: step.fallbackOnFail.message || '  ↳ no audio stream — substituting silence', label: step.label })
           await runFFmpeg(step.fallbackOnFail.label, resolveArgs(step.fallbackOnFail.args))
         } else {
           throw err

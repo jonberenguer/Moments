@@ -46,6 +46,18 @@
 .sliderLabel { font-size: 11px; color: var(--text2); }
 .sliderVal { font-size: 11px; color: var(--text1); font-variant-numeric: tabular-nums; }
 
+.sliderValEdit { display: flex; align-items: center; gap: 3px; }
+.sliderNum {
+  width: 46px; background: var(--bg3); border: 1px solid var(--border-md);
+  border-radius: 4px; padding: 1px 4px; font-size: 11px; color: var(--text1);
+  font-variant-numeric: tabular-nums; text-align: right;
+  transition: border-color 0.15s;
+}
+.sliderNum:focus { border-color: var(--accent-border); outline: none; }
+.sliderNum::-webkit-inner-spin-button,
+.sliderNum::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.sliderUnit { font-size: 11px; color: var(--text2); }
+
 .slider { width: 100%; height: 3px; accent-color: var(--accent); cursor: pointer; }
 
 .resetBtn {
@@ -58,6 +70,8 @@
   font-size: 10px; color: var(--text2); line-height: 1.5;
   padding: 2px 0 4px; opacity: 0.75;
 }
+
+.posHint { font-size: 10px; color: var(--text2); line-height: 1.4; padding: 2px 0 4px; opacity: 0.8; }
 
 .textInput {
   width: 100%; background: var(--bg3); border: 1px solid var(--border-md);
@@ -186,3 +200,9 @@
 .trimDurLabel {
   color: var(--accent); font-size: 10px;
 }
+
+.trimInputs {
+  display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px;
+}
+.trimInputCell { display: flex; align-items: center; gap: 4px; cursor: text; }
+.trimInputKey { font-size: 10px; color: var(--text2); }

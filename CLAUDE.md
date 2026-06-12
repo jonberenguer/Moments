@@ -82,6 +82,9 @@ moments-app/
 │   ├── app-info.json                    # About modal config (name, purpose, createdBy, version, etc.)
 │   └── ffmpeg/
 │       └── fonts/                       # Fonts available to FFmpeg drawtext (bundled into installer)
+│           ├── BebasNeue / Anton / Oswald-Regular.ttf      # video display faces (OFL)
+│           ├── Montserrat-Regular.ttf / Bold               # OFL
+│           ├── Roboto-Regular.ttf / Bold                   # Apache 2.0
 │           ├── Poppins-Regular.ttf / Bold
 │           ├── LiberationSans-Regular.ttf / Bold
 │           ├── LiberationSerif-Regular.ttf
@@ -497,16 +500,23 @@ const XFADE_MAP = {
 
 ## Preset Fonts
 
-All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via `extraResources`. At runtime they are resolved via `api.fontPath(fontFile)`.
+All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via `extraResources`. At runtime, **export** resolves them via `api.fontPath(fontFile)` (→ `resources/ffmpeg/fonts/`), and the **preview** registers each one with an injected `@font-face` whose `url()` must be **base-relative** (`import.meta.env.BASE_URL + 'ffmpeg/fonts/…'`) — an absolute `/ffmpeg/fonts/…` path 404s in the packaged `file://` app and silently falls back to sans-serif. Preset order in `PRESET_FONTS` (`useFFmpeg.js`) is the dropdown order.
 
-| Key | Label | File |
-|---|---|---|
-| `Poppins-Regular` | Poppins | Poppins-Regular.ttf |
-| `Poppins-Bold` | Poppins Bold | Poppins-Bold.ttf |
-| `LiberationSans-Regular` | Sans | LiberationSans-Regular.ttf |
-| `LiberationSans-Bold` | Sans Bold | LiberationSans-Bold.ttf |
-| `LiberationSerif-Regular` | Serif | LiberationSerif-Regular.ttf |
-| `LiberationMono-Regular` | Mono | LiberationMono-Regular.ttf |
+| Key | Label | File | License/Source |
+|---|---|---|---|
+| `BebasNeue-Regular` | Bebas Neue | BebasNeue-Regular.ttf | OFL · Google Fonts |
+| `Anton-Regular` | Anton | Anton-Regular.ttf | OFL · Google Fonts |
+| `Oswald-Regular` | Oswald | Oswald-Regular.ttf | OFL · Google Fonts (variable; renders default weight) |
+| `Montserrat-Regular` | Montserrat | Montserrat-Regular.ttf | OFL · JulietaUla/Montserrat |
+| `Montserrat-Bold` | Montserrat Bold | Montserrat-Bold.ttf | OFL · JulietaUla/Montserrat |
+| `Roboto-Regular` | Roboto | Roboto-Regular.ttf | Apache 2.0 · openmaptiles/fonts |
+| `Roboto-Bold` | Roboto Bold | Roboto-Bold.ttf | Apache 2.0 · openmaptiles/fonts |
+| `Poppins-Regular` | Poppins | Poppins-Regular.ttf | OFL |
+| `Poppins-Bold` | Poppins Bold | Poppins-Bold.ttf | OFL |
+| `LiberationSans-Regular` | Sans | LiberationSans-Regular.ttf | OFL |
+| `LiberationSans-Bold` | Sans Bold | LiberationSans-Bold.ttf | OFL |
+| `LiberationSerif-Regular` | Serif | LiberationSerif-Regular.ttf | OFL |
+| `LiberationMono-Regular` | Mono | LiberationMono-Regular.ttf | OFL |
 
 ---
 
@@ -585,10 +595,13 @@ apt-get install -y wine wine64 libwine mono-runtime
 
 - **`fileDuration` for direct timeline drops** — when files are dragged directly to the timeline (bypassing the media panel), `fileDuration` is `null`. The TrimBar does not appear until the user previews the clip in the media panel first.
 - **Speed + trim interaction** — `actualDur = (effectiveTrimEnd - trimStart) / speed`. Correct for wall-clock output duration.
-- **Music file not saved in workflow** — the user must re-add the music file after loading a workflow. `musicTrimStart`, `musicTrimEnd`, and `musicVolume` are saved and restored correctly.
+- **Music file not embedded in workflow** — the audio bytes aren't stored, but the **filename is saved and re-linkable** (same name-match approach as clip media): on load, `musicFileName` is remembered and the Media panel shows a "Re-link music" prompt; re-adding the matching file restores playback while **keeping** the saved `musicTrimStart`, `musicTrimEnd`, and `musicVolume`. Re-saving without re-adding preserves the pending link.
 - **No undo/redo** — all mutations are direct `setState` calls.
-- **Blur not rendered in Preview UI** — `blurBackground` is an export-only effect.
-- **Per-clip transition duration** — stored but not yet applied in export (global `td` used for all transitions).
+- **Blur background preview is a CSS approximation** — `Preview.jsx` shows a `blur()/scale` cover copy behind the letterboxed foreground (`.blurBg`); it approximates, but won't exactly match, FFmpeg's `boxblur` fill.
+- **Per-clip transition duration is applied in export** — `exportMoment` resolves `tdFor(clip) = clip.transitionDuration ?? global td` per boundary (0 for `none`); every segment is padded to `maxTd + 0.5` so xfades always fit. End-fade total and the store's `exportDuration`/`timeline` all use the same per-clip math.
+
+### Settings persistence
+- `aspectRatio` and `quality` persist across sessions via `localStorage` (`moments.aspectRatio` / `moments.quality`), seeded into the store's initial state (no flash, no undo entry). The wrapped `setAspectRatio`/`setQuality` write back on every change — including workflow loads and undo (last-used wins).
 - **Multiple custom fonts** — only one custom font at a time (`font_custom.ttf`). Each segment stores its own `customFontData` so data is preserved, but the pipeline would need extending to write per-segment font files.
 - **Media re-matching is filename-only** — on workflow load, clips are matched by filename alone.
 - **`slide` and `typewriter` text animations** — these are CSS-only effects in the Preview. Both fall back to a fade in/out in the FFmpeg export, since `drawtext` has no native slide or typewriter support. A future approach would be to render text as an overlay video using `lavfi` or a separate compositing pass.

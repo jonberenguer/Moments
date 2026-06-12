@@ -54,7 +54,19 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 
 FFmpeg must be placed in `bin/` before building. It is bundled into the installer and shipped to users — they never need to install it separately.
 
-### Recommended: BtbN GPL builds (includes GPU encoders)
+### Recommended: download script (BtbN GPL builds)
+
+```bash
+node scripts/download-ffmpeg.js          # both platforms (default)
+node scripts/download-ffmpeg.js linux    # Linux x64 only  → bin/linux/ffmpeg
+node scripts/download-ffmpeg.js win      # Windows x64 only → bin/win/ffmpeg.exe
+```
+
+Downloads and unpacks the [BtbN GPL builds](https://github.com/BtbN/FFmpeg-Builds/releases). These include the **`drawtext`** filter (required for text overlays) plus `libx264` and the `h264_nvenc`/`h264_amf`/`h264_qsv` GPU encoders. Extraction needs `tar` (with xz) and `unzip` — on Debian/Ubuntu: `apt-get install -y xz-utils unzip`.
+
+> ⚠️ Do **not** use the `ffmpeg-static` npm package. Its bundled (johnvansickle) static build omits the `drawtext` filter, so text-overlay export fails with `No such filter: 'drawtext'`.
+
+### Manual alternative
 
 **Linux:**
 ```bash
@@ -75,18 +87,11 @@ mkdir -p bin/win
 cp /tmp/ffmpeg-win/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe bin/win/ffmpeg.exe
 ```
 
-### Alternative: ffmpeg-static (CPU only, easiest)
-
-```bash
-node scripts/download-ffmpeg.js
-```
-
-Uses the `ffmpeg-static` npm package. Provides CPU encoding (`libx264`). GPU encoders may or may not be present depending on the underlying build.
-
-### Verify GPU encoders
+### Verify encoders and drawtext
 
 ```bash
 ./bin/linux/ffmpeg -hide_banner -encoders | grep -E "h264_nvenc|h264_amf|h264_qsv|libx264"
+./bin/linux/ffmpeg -hide_banner -filters  | grep drawtext   # must print a line, else text overlays won't render
 ```
 
 ---
@@ -146,10 +151,13 @@ docker build -t electron-app:builtin-packages .
 
 The project directory is mounted as a volume so build output lands directly in `dist-electron/` on the host. FFmpeg binaries must already be present in `bin/` before running (see [FFmpeg Setup](#ffmpeg-setup)).
 
+> **Cache the electron-builder toolchain.** The `-v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache` flags below persist electron-builder's downloaded tools (winCodeSign, NSIS, app-builder) in a named Docker volume. Without them, `--rm` discards the cache and these are re-downloaded on every run. See [Build caching](#build-caching) below.
+
 **Linux AppImage:**
 ```bash
 docker run --rm -it \
   -v $(pwd):/app \
+  -v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache \
   -w /app \
   electron-app:builtin-packages /bin/bash -c "npm install && npm run build:linux"
 ```
@@ -158,6 +166,7 @@ docker run --rm -it \
 ```bash
 docker run --rm -it \
   -v $(pwd):/app \
+  -v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache \
   -w /app \
   electron-app:builtin-packages /bin/bash -c "npm install && npm run build:win"
 ```
@@ -166,15 +175,27 @@ docker run --rm -it \
 ```bash
 docker run --rm -it \
   -v $(pwd):/app \
+  -v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache \
   -w /app \
   electron-app:builtin-packages /bin/bash -c "npm install && npm run build:all"
 ```
+
+### Build caching
+
+Because the container runs with `--rm`, anything written to its filesystem is discarded when it exits. electron-builder downloads its toolchain (winCodeSign, NSIS/nsis-resources — used even for the portable target — and app-builder) into `~/.cache/electron-builder` at build time, so without a persistent cache it re-downloads them every run.
+
+The `-v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache` flags fix this: a **named** Docker volume (`moments-eb-cache`, auto-created on first use) holds the cache between runs, and `ELECTRON_BUILDER_CACHE` points electron-builder at it. The Electron binary itself is already baked into the image (`~/.cache/electron`), so it isn't affected.
+
+- Only the **first** build downloads the toolchain; later builds reuse it.
+- To inspect or reset the cache: `docker volume inspect moments-eb-cache` / `docker volume rm moments-eb-cache`.
+- Don't replace the named volume with a bind mount on `~/.cache` (e.g. `-v $(pwd)/.cache:/root/.cache`) — a bind mount starts empty and would shadow the image's pre-cached Electron binary, forcing *that* to re-download too.
+- Optional: add `-v moments-npm:/root/.npm` to also cache npm's download metadata across runs.
 
 ### Notes
 
 - `npm install` is run inside the container on each invocation because native addons must be compiled for the container's glibc, not the host's. The installed `node_modules` are written into the mounted volume and will appear on the host — this is expected.
 - Build output is written to `dist-electron/` in the mounted volume, so the AppImage / exe are immediately accessible on the host after the container exits.
-- The `--rm` flag removes the container after each run. No state is kept between runs except what is written back through the volume mount.
+- The `--rm` flag removes the container after each run. No state is kept between runs except what is written back through the volume mount (and the named cache volume above).
 
 ---
 

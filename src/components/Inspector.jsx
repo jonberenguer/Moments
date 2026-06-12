@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useState } from 'react'
 import styles from './Inspector.module.css'
 import { PRESET_FONTS } from '../hooks/useFFmpeg'
 
@@ -19,6 +19,24 @@ function TrimBar({ clip, onUpdate }) {
   const fileDur  = clip.fileDuration || 0
   const trimStart = clip.trimStart || 0
   const trimEnd   = clip.trimEnd   || fileDur
+  // Draft holds in-progress text for the start/end fields while typing.
+  const [startDraft, setStartDraft] = useState(null)
+  const [endDraft,   setEndDraft]   = useState(null)
+
+  const commitStart = (raw) => {
+    setStartDraft(null)
+    if (raw === '') return
+    const n = Number(raw); if (Number.isNaN(n)) return
+    const clamped = Math.min(n, trimEnd - 0.5)
+    onUpdate(clip.id, { trimStart: +Math.max(0, clamped).toFixed(2) })
+  }
+  const commitEnd = (raw) => {
+    setEndDraft(null)
+    if (raw === '') return
+    const n = Number(raw); if (Number.isNaN(n)) return
+    const clamped = Math.min(fileDur, Math.max(n, trimStart + 0.5))
+    onUpdate(clip.id, { trimEnd: +clamped.toFixed(2), duration: +Math.min(clip.duration || 4, clamped - trimStart).toFixed(1) })
+  }
 
   const startDrag = useCallback((which, e) => {
     e.preventDefault()
@@ -65,6 +83,30 @@ function TrimBar({ clip, onUpdate }) {
         <span className={styles.trimDurLabel}>{(trimEnd-trimStart).toFixed(1)}s used</span>
         <span>{fmt(trimEnd)}</span>
       </div>
+      <div className={styles.trimInputs}>
+        <label className={styles.trimInputCell}>
+          <span className={styles.trimInputKey}>Start</span>
+          <span className={styles.sliderValEdit}>
+            <input type="number" className={styles.sliderNum} value={startDraft ?? +trimStart.toFixed(2)}
+              min={0} max={+(trimEnd-0.5).toFixed(2)} step={0.1}
+              onChange={e=>setStartDraft(e.target.value)}
+              onBlur={e=>commitStart(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.blur() }}/>
+            <span className={styles.sliderUnit}>s</span>
+          </span>
+        </label>
+        <label className={styles.trimInputCell}>
+          <span className={styles.trimInputKey}>End</span>
+          <span className={styles.sliderValEdit}>
+            <input type="number" className={styles.sliderNum} value={endDraft ?? +trimEnd.toFixed(2)}
+              min={+(trimStart+0.5).toFixed(2)} max={+fileDur.toFixed(2)} step={0.1}
+              onChange={e=>setEndDraft(e.target.value)}
+              onBlur={e=>commitEnd(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.blur() }}/>
+            <span className={styles.sliderUnit}>s</span>
+          </span>
+        </label>
+      </div>
       <button className={styles.resetBtn} onClick={()=>onUpdate(clip.id,{trimStart:0,trimEnd:null})}>Reset trim</button>
     </div>
   )
@@ -76,6 +118,24 @@ function MusicTrimBar({ musicDuration, musicTrimStart, musicTrimEnd, onMusicTrim
   const dur      = musicDuration || 0
   const tStart   = musicTrimStart || 0
   const tEnd     = musicTrimEnd != null ? musicTrimEnd : dur
+  // Draft holds in-progress text for the start/end fields while typing.
+  const [startDraft, setStartDraft] = useState(null)
+  const [endDraft,   setEndDraft]   = useState(null)
+
+  const commitStart = (raw) => {
+    setStartDraft(null)
+    if (raw === '') return
+    const n = Number(raw); if (Number.isNaN(n)) return
+    const clamped = Math.max(0, Math.min(n, tEnd - 0.5))
+    onMusicTrimChange(+clamped.toFixed(2), tEnd >= dur ? null : tEnd)
+  }
+  const commitEnd = (raw) => {
+    setEndDraft(null)
+    if (raw === '') return
+    const n = Number(raw); if (Number.isNaN(n)) return
+    const clamped = Math.min(dur, Math.max(n, tStart + 0.5))
+    onMusicTrimChange(tStart, clamped >= dur ? null : +clamped.toFixed(2))
+  }
 
   const startDrag = useCallback((which, e) => {
     e.preventDefault()
@@ -121,17 +181,61 @@ function MusicTrimBar({ musicDuration, musicTrimStart, musicTrimEnd, onMusicTrim
         <span className={styles.trimDurLabel}>{(tEnd-tStart).toFixed(1)}s used</span>
         <span>{fmt(tEnd)}</span>
       </div>
+      <div className={styles.trimInputs}>
+        <label className={styles.trimInputCell}>
+          <span className={styles.trimInputKey}>Start</span>
+          <span className={styles.sliderValEdit}>
+            <input type="number" className={styles.sliderNum} value={startDraft ?? +tStart.toFixed(2)}
+              min={0} max={+(tEnd-0.5).toFixed(2)} step={0.1}
+              onChange={e=>setStartDraft(e.target.value)}
+              onBlur={e=>commitStart(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.blur() }}/>
+            <span className={styles.sliderUnit}>s</span>
+          </span>
+        </label>
+        <label className={styles.trimInputCell}>
+          <span className={styles.trimInputKey}>End</span>
+          <span className={styles.sliderValEdit}>
+            <input type="number" className={styles.sliderNum} value={endDraft ?? +tEnd.toFixed(2)}
+              min={+(tStart+0.5).toFixed(2)} max={+dur.toFixed(2)} step={0.1}
+              onChange={e=>setEndDraft(e.target.value)}
+              onBlur={e=>commitEnd(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.blur() }}/>
+            <span className={styles.sliderUnit}>s</span>
+          </span>
+        </label>
+      </div>
       <button className={styles.resetBtn} onClick={()=>onMusicTrimChange(0, null)}>Reset trim</button>
     </div>
   )
 }
 
 function Slider({ label, value, min, max, step=1, format=v=>v, onChange }) {
+  // Draft holds the in-progress text while the user types so partial input
+  // (e.g. "-", "1." ) isn't clobbered. null = not editing, show live value.
+  const [draft, setDraft] = useState(null)
+  // Derive the unit suffix ("s", "x", "%", …) from the display formatter so
+  // callers don't have to pass it separately.
+  const unit = String(format(value)).replace(/[-\d.]/g, '')
+  const commit = (raw) => {
+    setDraft(null)
+    if (raw === '' ) return
+    const n = Number(raw)
+    if (Number.isNaN(n)) return
+    onChange(Math.min(max, Math.max(min, n)))
+  }
   return (
     <div className={styles.sliderRow}>
       <div className={styles.sliderHeader}>
         <span className={styles.sliderLabel}>{label}</span>
-        <span className={styles.sliderVal}>{format(value)}</span>
+        <span className={styles.sliderValEdit}>
+          <input type="number" className={styles.sliderNum} value={draft ?? value}
+            min={min} max={max} step={step}
+            onChange={e=>setDraft(e.target.value)}
+            onBlur={e=>commit(e.target.value)}
+            onKeyDown={e=>{ if(e.key==='Enter') e.currentTarget.blur() }}/>
+          {unit && <span className={styles.sliderUnit}>{unit}</span>}
+        </span>
       </div>
       <input type="range" min={min} max={max} step={step} value={value} className={styles.slider} onChange={e=>onChange(Number(e.target.value))}/>
     </div>
@@ -258,9 +362,14 @@ function TextPanel({ seg, onUpdate }) {
       </div>
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Appearance</div>
-        <Slider label="Font size" value={seg.fontSize||28} min={10} max={120} step={2} format={v=>`${v}px`} onChange={v=>onUpdate({fontSize:v})}/>
+        <Slider label="Font size" value={seg.fontSize||60} min={60} max={260} step={2} format={v=>`${v}px`} onChange={v=>onUpdate({fontSize:v})}/>
+        <Slider label="Opacity" value={seg.opacity??100} min={0} max={100} step={1} format={v=>`${v}%`} onChange={v=>onUpdate({opacity:v})}/>
         <div className={styles.metaRow}><span className={styles.metaKey}>Color</span>
           <input type="color" className={styles.colorInput} value={seg.color||'#ffffff'} onChange={e=>onUpdate({color:e.target.value})}/></div>
+        <label className={styles.toggleRow}><span className={styles.toggleLabel}>Drop shadow</span>
+          <input type="checkbox" className={styles.toggle} checked={seg.shadow!==false} onChange={e=>onUpdate({shadow:e.target.checked})}/></label>
+        <label className={styles.toggleRow}><span className={styles.toggleLabel}>Outline</span>
+          <input type="checkbox" className={styles.toggle} checked={!!seg.outline} onChange={e=>onUpdate({outline:e.target.checked})}/></label>
         <div className={styles.metaRow}><span className={styles.metaKey}>Font</span>
           <select className={styles.selectSmall} value={seg.fontFile||'Poppins-Regular'} onChange={e=>onUpdate({fontFile:e.target.value,customFontName:null})}>
             {PRESET_FONTS.map(f=><option key={f.key} value={f.key}>{f.label}</option>)}
@@ -273,15 +382,9 @@ function TextPanel({ seg, onUpdate }) {
       </div>
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Position & Animation</div>
-        <div className={styles.metaRow}><span className={styles.metaKey}>Position</span>
-          <select className={styles.selectSmall} value={seg.position||'bottom'} onChange={e=>onUpdate({position:e.target.value})}>
-            <option value="bottom">Bottom</option><option value="center">Centre</option>
-            <option value="top">Top</option><option value="custom">Custom (drag)</option>
-          </select></div>
-        {seg.position==='custom'&&(
-          <><Slider label="X %" value={seg.posX??50} min={5} max={95} format={v=>`${v}%`} onChange={v=>onUpdate({posX:v})}/>
-          <Slider label="Y %" value={seg.posY??85} min={5} max={95} format={v=>`${v}%`} onChange={v=>onUpdate({posY:v})}/></>
-        )}
+        <Slider label="X %" value={seg.posX??50} min={5} max={95} format={v=>`${v}%`} onChange={v=>onUpdate({position:'custom',posX:v})}/>
+        <Slider label="Y %" value={seg.posY??50} min={5} max={95} format={v=>`${v}%`} onChange={v=>onUpdate({position:'custom',posY:v})}/>
+        <div className={styles.posHint}>Drag the caption in the preview to reposition.</div>
         <div className={styles.metaRow}><span className={styles.metaKey}>Animation</span>
           <select className={styles.selectSmall} value={seg.animation||'fade'} onChange={e=>onUpdate({animation:e.target.value})}>
             {ANIM_OPTIONS.map(a=><option key={a} value={a}>{a}</option>)}

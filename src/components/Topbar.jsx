@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Film, Download, Save, FolderOpen, Monitor, Smartphone, Terminal, CheckCircle, Clock, X } from 'lucide-react'
+import { Film, Download, Save, FolderOpen, Monitor, Smartphone, Terminal, CheckCircle, Clock, Undo2, Redo2, AlertTriangle } from 'lucide-react'
 import styles from './Topbar.module.css'
 import AboutModal from './AboutModal'
 
@@ -9,6 +9,8 @@ export default function Topbar({
   aspectRatio, onAspectRatioChange,
   quality, onQualityChange,
   onSaveWorkflow, onLoadWorkflow,
+  onUndo, onRedo, canUndo, canRedo,
+  ffmpegMissing, ffmpegPath,
   showLogs, onToggleLogs,
   exportDone, outputUrl, outputName,
   exportStartedAt, exportCompletedAt, exportState,
@@ -32,6 +34,18 @@ export default function Topbar({
     }
     return () => clearInterval(tickRef.current)
   }, [exportState, exportStartedAt, exportCompletedAt])
+
+  // The main process intercepts the native close (X / Alt+F4) and asks us to
+  // confirm — open the same exit dialog the toolbar used to.
+  useEffect(() => {
+    return window.electronAPI?.onConfirmClose?.(() => setShowExitConfirm(true))
+  }, [])
+
+  // On Windows/macOS the title bar is hidden, so the toolbar doubles as the
+  // drag region; on Windows reserve space on the right for the native overlay
+  // (min/max/close) buttons so they don't overlap our controls.
+  const hiddenTitleBar = !!window.electronAPI && window.electronAPI.platform !== 'linux'
+  const isWindows      = window.electronAPI?.platform === 'win32'
 
   const fmtElapsed = (ms) => {
     const totalSec = Math.floor(ms / 1000)
@@ -58,7 +72,8 @@ export default function Topbar({
 
   return (
     <>
-    <header className={styles.bar}>
+    <header className={`${styles.bar} ${hiddenTitleBar ? styles.dragBar : ''}`}
+      style={isWindows ? { paddingRight: 148 } : undefined}>
       <div className={styles.left}>
         <button className={styles.logoBtn} onClick={() => setShowAbout(true)} title="About moments">
           <div className={styles.logo}>
@@ -118,6 +133,14 @@ export default function Topbar({
       </div>
 
       <div className={styles.right}>
+        <button className={styles.iconBtn} onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">
+          <Undo2 size={14} strokeWidth={1.5} />
+        </button>
+        <button className={styles.iconBtn} onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)">
+          <Redo2 size={14} strokeWidth={1.5} />
+        </button>
+        <div className={styles.divider} />
+
         <button className={styles.iconBtn} onClick={() => fileInputRef.current?.click()} title="Load workflow">
           <FolderOpen size={14} strokeWidth={1.5} />
         </button>
@@ -142,19 +165,18 @@ export default function Topbar({
           </a>
         )}
 
-        <button className={styles.exportBtn} onClick={onExport} disabled={exporting}>
+        {ffmpegMissing && (
+          <span className={styles.ffmpegWarn}
+            title={`FFmpeg not found${ffmpegPath ? ` at ${ffmpegPath}` : ''} — run "node scripts/download-ffmpeg.js" to enable export`}>
+            <AlertTriangle size={13} strokeWidth={1.8} />
+            <span className={styles.ffmpegWarnText}>FFmpeg missing</span>
+          </span>
+        )}
+
+        <button className={styles.exportBtn} onClick={onExport} disabled={exporting || ffmpegMissing}
+          title={ffmpegMissing ? 'FFmpeg not found — install it to enable export' : undefined}>
           <Download size={13} strokeWidth={1.5} />
           {exporting ? `${exportProgress}%` : 'Export MP4'}
-        </button>
-
-        {/* Close / exit button — always visible, calls Electron close or window.close fallback */}
-        <div className={styles.dividerThin} />
-        <button
-          className={styles.closeBtn}
-          onClick={() => setShowExitConfirm(true)}
-          title="Exit moments"
-        >
-          <X size={14} strokeWidth={1.5} />
         </button>
       </div>
     </header>
@@ -171,7 +193,7 @@ export default function Topbar({
               Cancel
             </button>
             <button className={styles.exitConfirm} onClick={() => {
-              if (window.electronAPI?.closeApp) window.electronAPI.closeApp()
+              if (window.electronAPI?.forceClose) window.electronAPI.forceClose()
               else window.close()
             }}>
               Exit

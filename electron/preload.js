@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   detectGPU:   ()         => ipcRenderer.invoke('gpu:detect'),
   resetGPU:    ()         => ipcRenderer.invoke('gpu:reset'),
 
+  // ── FFmpeg availability ────────────────────────────────────────────────────
+  checkFFmpeg: ()         => ipcRenderer.invoke('ffmpeg:check'),
+
   // ── Export ───────────────────────────────────────────────────────────────
   startExport: (payload)  => ipcRenderer.invoke('ffmpeg:export', payload),
   cancelExport:(jobId)    => ipcRenderer.send('ffmpeg:cancel', jobId),
@@ -60,7 +63,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 
   // ── Window controls ───────────────────────────────────────────────────────
-  closeApp:    () =>    ipcRenderer.invoke('app:close'),
-  startResize: (dir) => ipcRenderer.send('window:startResize', dir),
-  stopResize:  ()    => ipcRenderer.send('window:stopResize'),
+  // Native window management (resize/maximize/restore/snap) is handled by the OS
+  // via titleBarStyle:'hidden' + titleBarOverlay. The renderer only needs to
+  // confirm-and-close: the main process intercepts the window close and asks the
+  // renderer (onConfirmClose); the user's choice resolves via forceClose().
+  forceClose:     ()   => ipcRenderer.invoke('app:forceClose'),
+  onConfirmClose: (cb) => {
+    const handler = () => cb()
+    ipcRenderer.on('app:confirm-close', handler)
+    return () => ipcRenderer.removeListener('app:confirm-close', handler)
+  },
 })

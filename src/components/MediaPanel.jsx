@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react'
-import { Plus, Music, Trash2, Upload, Play, Pause, GripVertical, PlusCircle, ListPlus } from 'lucide-react'
+import { Plus, Music, Trash2, Play, Pause, GripVertical, PlusCircle, ListPlus } from 'lucide-react'
 import styles from './MediaPanel.module.css'
 
 // Convert base64 + mime into a File object the existing onAddFiles pipeline accepts
@@ -15,7 +15,7 @@ const api = window.electronAPI
 
 export default function MediaPanel({
   mediaLibrary, activeMediaId, onSelectMedia, onAddToTimeline, onRemoveMedia, onAddFiles, onUpdateMediaDuration,
-  musicFile, onMusicFile, onMusicDuration,
+  musicFile, onMusicFile, onMusicDuration, musicNeedsRelink,
 }) {
   const fileInputRef   = useRef()   // fallback for non-Electron environments
   const musicInputRef  = useRef()
@@ -176,8 +176,6 @@ export default function MediaPanel({
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
   }, [isDraggingVideo, seekVideoFromEvent])
 
-  const handleDrop = useCallback((e) => { e.preventDefault(); onAddFiles(e.dataTransfer.files) }, [onAddFiles])
-
   const handleVideoDuration = useCallback((item, e) => {
     const dur = e.target.duration
     if (dur && isFinite(dur) && !item.duration) onUpdateMediaDuration(item.id, parseFloat(dur.toFixed(1)))
@@ -249,11 +247,10 @@ export default function MediaPanel({
         </div>
       )}
 
-      <div className={styles.dropzone} onDrop={handleDrop} onDragOver={e => e.preventDefault()} onClick={openMediaFiles}>
-        <Upload size={18} strokeWidth={1.5} className={styles.uploadIcon} />
-        <span>Drop photos & videos</span>
-        <span className={styles.dropHint}>or click to browse</span>
-      </div>
+      <button className={styles.addMediaBtn} onClick={openMediaFiles}>
+        <Plus size={15} strokeWidth={2.2} />
+        Add Photos &amp; Videos
+      </button>
 
       <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" style={{ display:'none' }}
         onChange={e => { onAddFiles(e.target.files); e.target.value='' }} />
@@ -349,9 +346,16 @@ export default function MediaPanel({
             </div>
           </div>
         ) : (
-          <button className={styles.musicAdd} onClick={() => musicInputRef.current?.click()}>
-            <Plus size={12} strokeWidth={2} /> Add audio file
-          </button>
+          <>
+            {musicNeedsRelink && (
+              <div className={styles.musicRelink} title={`This workflow used "${musicNeedsRelink}". Re-add it to restore the music (its trim & volume are kept).`}>
+                ⚠ Re-link music: <strong>{musicNeedsRelink}</strong>
+              </div>
+            )}
+            <button className={styles.musicAdd} onClick={() => musicInputRef.current?.click()}>
+              <Plus size={12} strokeWidth={2} /> {musicNeedsRelink ? 'Re-add music file' : 'Add audio file'}
+            </button>
+          </>
         )}
         <input ref={musicInputRef} type="file" accept="audio/*" style={{ display:'none' }}
           onChange={e => { if(e.target.files[0]) onMusicFile(e.target.files[0]); e.target.value='' }} />
