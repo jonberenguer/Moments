@@ -489,7 +489,8 @@ export function useFFmpeg() {
 
         if (c._isImg) {
           // Compute effect vf once — used by both the blur and non-blur paths.
-          const effectVf = buildImageEffectVf(c.imageEffect, W, H, actualDur)
+          // Ken Burns and a clip transform are mutually exclusive — a transform wins.
+          const effectVf = clipHasTransform(c) ? null : buildImageEffectVf(c.imageEffect, W, H, actualDur)
 
           if (c.blurBackground) {
             // ── BLUR BACKGROUND ──────────────────────────────────────────
@@ -506,20 +507,27 @@ export function useFFmpeg() {
             // 30fps video input so its `on` frame counter advances correctly.
             const blurOut = effectVf ? `img_base_${i}.mp4` : segFile
 
-            const fgNodes = [
-              `[_fg0]scale=${W}:${H}:force_original_aspect_ratio=decrease[_ffit]`,
-              `[_ffit]scale=trunc(iw/2)*2:trunc(ih/2)*2[_feven]`,
-            ]
-            const fgOut   = eqFilter ? `[_feven]${eqFilter}[_fpadded]` : null
-            const finalFg = eqFilter ? '[_fpadded]' : '[_feven]'
-
-            const blurFc = [
-              `[0:v]split=2[_bg0][_fg0]`,
-              `[_bg0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=luma_radius=20:luma_power=2[_bg]`,
-              ...fgNodes,
-              ...(fgOut ? [fgOut] : []),
-              `[_bg]${finalFg}overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2[vout]`,
-            ].join(';')
+            const bgChain = `[_bg0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=luma_radius=20:luma_power=2[_bg]`
+            let blurFc
+            if (clipHasTransform(c)) {
+              // blur bg + transformed fg (scale/rotate/move over the blur, offset).
+              // Transform excludes Ken Burns, so this is single-pass → segFile.
+              blurFc = [`[0:v]split=2[_bg0][_fg0]`, bgChain, buildTransformOverlay('[_fg0]', '_bg', W, H, c, eqFilter)].join(';')
+            } else {
+              const fgNodes = [
+                `[_fg0]scale=${W}:${H}:force_original_aspect_ratio=decrease[_ffit]`,
+                `[_ffit]scale=trunc(iw/2)*2:trunc(ih/2)*2[_feven]`,
+              ]
+              const fgOut   = eqFilter ? `[_feven]${eqFilter}[_fpadded]` : null
+              const finalFg = eqFilter ? '[_fpadded]' : '[_feven]'
+              blurFc = [
+                `[0:v]split=2[_bg0][_fg0]`,
+                bgChain,
+                ...fgNodes,
+                ...(fgOut ? [fgOut] : []),
+                `[_bg]${finalFg}overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2[vout]`,
+              ].join(';')
+            }
 
             steps.push({
               label: `img-blur[${i}]`,
@@ -648,25 +656,32 @@ export function useFFmpeg() {
             // fg: fit → even-align (stays at letterbox size, NO pad) → optional speed/eq
             // overlay centres fg over full-canvas blur; bars show blur behind them.
             // NOTE: do NOT pad the fg to W×H — see image blur path comment.
-            const fgNodes = [
-              `[_fg0]scale=${W}:${H}:force_original_aspect_ratio=decrease[_ffit]`,
-              `[_ffit]scale=trunc(iw/2)*2:trunc(ih/2)*2[_feven]`,
-            ]
-            const vidFgChain = ['[_feven]']
-            if (speedVf)  vidFgChain.push(speedVf)
-            if (eqFilter) vidFgChain.push(eqFilter)
-            const hasExtra = speedVf || eqFilter
-            if (hasExtra) {
-              fgNodes.push(vidFgChain.join(',') + '[_fgfinal]')
+            const bgChain = `[_bg0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=luma_radius=20:luma_power=2[_bg]`
+            let blurFc
+            if (clipHasTransform(c)) {
+              // blur bg + transformed fg (speed/eq applied first, then scale/rotate/move).
+              const extra = [speedVf, eqFilter].filter(Boolean).join(',')
+              blurFc = [`[0:v]split=2[_bg0][_fg0]`, bgChain, buildTransformOverlay('[_fg0]', '_bg', W, H, c, extra)].join(';')
+            } else {
+              const fgNodes = [
+                `[_fg0]scale=${W}:${H}:force_original_aspect_ratio=decrease[_ffit]`,
+                `[_ffit]scale=trunc(iw/2)*2:trunc(ih/2)*2[_feven]`,
+              ]
+              const vidFgChain = ['[_feven]']
+              if (speedVf)  vidFgChain.push(speedVf)
+              if (eqFilter) vidFgChain.push(eqFilter)
+              const hasExtra = speedVf || eqFilter
+              if (hasExtra) {
+                fgNodes.push(vidFgChain.join(',') + '[_fgfinal]')
+              }
+              const finalFg = hasExtra ? '[_fgfinal]' : '[_feven]'
+              blurFc = [
+                `[0:v]split=2[_bg0][_fg0]`,
+                bgChain,
+                ...fgNodes,
+                `[_bg]${finalFg}overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2[vout]`,
+              ].join(';')
             }
-            const finalFg = hasExtra ? '[_fgfinal]' : '[_feven]'
-
-            const blurFc = [
-              `[0:v]split=2[_bg0][_fg0]`,
-              `[_bg0]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=luma_radius=20:luma_power=2[_bg]`,
-              ...fgNodes,
-              `[_bg]${finalFg}overlay=(main_w-overlay_w)/2:(main_h-overlay_h)/2[vout]`,
-            ].join(';')
 
             steps.push({
               label: `vid-place[${i}]`,

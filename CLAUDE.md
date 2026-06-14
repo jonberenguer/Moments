@@ -420,9 +420,9 @@ fit (decrease, NO pad) → [eq/speed] → format=rgba → scale=iw*S:ih*S
   → overlay onto [bg] at (main_w-overlay_w)/2 + offsetX·main_w : (main_h-overlay_h)/2 + offsetY·main_h
 ```
 
-- `bg` = `color=c=black:s=WxH` for non-blur. The overlay clips to the canvas, matching the preview's `overflow:hidden`.
+- `bg` = `color=c=black:s=WxH` for non-blur clips, or the **blurred fill** (`[_bg]`) for blur-background clips — the blur paths split the source, build `[_bg]`, then composite the transformed fg over it via `buildTransformOverlay('[_fg0]', '_bg', …)`. The overlay clips to the canvas, matching the preview's `overflow:hidden`.
 - **Geometry is verified against the preview** via an offscreen-render calibration harness (headless Chromium replica of the preview CSS vs FFmpeg, pixel-compared). FFmpeg `rotate=+rad` matches CSS `rotate(+deg)` (both clockwise); uniform scale commutes with rotation so the FFmpeg scale-then-rotate equals the CSS rotate-then-scale.
-- **Mutually exclusive** with Ken Burns (`imageEffect`) — a transform skips `effectVf`. **Blur background + transform** is not yet composed: transform is gated off for blur clips in *both* preview and export (a follow-up), so they stay consistent.
+- **Mutually exclusive** with Ken Burns (`imageEffect`) — a transform sets `effectVf = null` (transform wins). In the **preview**, the transform is applied to the foreground media element only; the blur background is a separate full-canvas element, so it's unaffected — matching the export.
 - Preview mirror: `Preview.jsx` applies `transform: translate(offsetX%, offsetY%) scale(scale) rotate(rotation deg)` (translate % is % of the canvas since the media element is 100% of the canvas-aspect screen).
 
 #### Image clip path

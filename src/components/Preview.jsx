@@ -266,9 +266,10 @@ export default function Preview({
   // 100% of the canvas-aspect screen), scale/rotate around centre — same model the
   // export composites. Mutually exclusive with the Ken Burns effect (both drive
   // transform), so when a transform is set we drop the effect class.
-  // Transform applies to non-blur clips for now (blur+transform is a follow-up);
-  // gated here so the preview matches the export, which only transforms non-blur.
-  const tfHas = clip && !clip.blurBackground && ((clip.scale ?? 1) !== 1 || (clip.rotation ?? 0) !== 0 || (clip.offsetX ?? 0) !== 0 || (clip.offsetY ?? 0) !== 0)
+  // Transform applies to the foreground media element; the blur background (a
+  // separate full-canvas element) is unaffected — matching the export, which
+  // composites the transformed fg over the blur bg.
+  const tfHas = clip && ((clip.scale ?? 1) !== 1 || (clip.rotation ?? 0) !== 0 || (clip.offsetX ?? 0) !== 0 || (clip.offsetY ?? 0) !== 0)
   const tfStyle = tfHas
     ? `translate(${clip.offsetX || 0}%, ${clip.offsetY || 0}%) scale(${clip.scale ?? 1}) rotate(${clip.rotation || 0}deg)`
     : undefined
