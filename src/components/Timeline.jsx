@@ -125,13 +125,6 @@ function ClipRow({ clips, activeClipId, onSelectClip, onReorder, onRemoveClip, g
                   : clip.type==='image'
                     ? <img src={clip.url} alt={clip.name} className={styles.clipThumb}/>
                     : <video src={clip.url} className={styles.clipThumb} muted/>}
-                {/* Trim region indicator for video clips */}
-                {clip.type==='video'&&clip.fileDuration>0&&(clip.trimStart>0||(clip.trimEnd&&clip.trimEnd<clip.fileDuration))&&(
-                  <div className={styles.trimOverlay}>
-                    {clip.trimStart>0&&<div className={styles.trimLeft} style={{width:`${(clip.trimStart/clip.fileDuration)*100}%`}}/>}
-                    {clip.trimEnd&&clip.trimEnd<clip.fileDuration&&<div className={styles.trimRight} style={{width:`${(1-clip.trimEnd/clip.fileDuration)*100}%`}}/>}
-                  </div>
-                )}
                 <div className={styles.clipInfo}>
                   <span className={styles.clipTypeIcon}>{clip.type==='video'?'▶':'◉'}</span>
                   <span className={styles.clipDur}>{(clip.duration||0).toFixed(1)}s</span>
