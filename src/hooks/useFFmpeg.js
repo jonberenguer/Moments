@@ -207,6 +207,11 @@ function buildDrawtext(seg, W, H, fontPath, textFilePath) {
   // inside it. line_spacing ≈ the preview's line-height. Mirrors Preview.jsx.
   const talign = (seg.textAlign === 'left' || seg.textAlign === 'right') ? seg.textAlign : 'center'
   const lineSpacing = Math.max(0, Math.round(fontSize * 0.15))
+  // NOTE: keep the default y_align (=text). It centers the whole multi-line block
+  // via text_h (y=posY-text_h/2 → block centered on the anchor). `y_align=font`
+  // was tried to tighten single-line vertical match with the preview, but it
+  // re-references y per the first line's font metrics and pushes multi-line blocks
+  // DOWN, clipping the last lines off the bottom — do not reintroduce it.
   // expansion=none makes the loaded text fully literal — drawtext otherwise runs
   // %{...} text-expansion on the textfile content, so a bare '%' (e.g. "100%")
   // throws "Stray %" and fails the whole pass. With expansion=none every byte of
