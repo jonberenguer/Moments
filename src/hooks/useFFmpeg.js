@@ -16,6 +16,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react'
+import { hasCJK, wrapText } from '../textLayout'
 
 const api = window.electronAPI   // injected by preload.js
 
@@ -53,7 +54,13 @@ export const PRESET_FONTS = [
   { key: 'LiberationSans-Bold',     label: 'Sans Bold',    file: 'LiberationSans-Bold.ttf',    cssFamily: 'MomSansBold' },
   { key: 'LiberationSerif-Regular', label: 'Serif',        file: 'LiberationSerif-Regular.ttf',cssFamily: 'MomSerif' },
   { key: 'LiberationMono-Regular',  label: 'Mono',         file: 'LiberationMono-Regular.ttf', cssFamily: 'MomMono' },
+  // CJK-capable face (covers Latin + Korean Hangul + Chinese/Japanese Han) — OFL.
+  // Used automatically for any caption containing CJK characters; the Latin-only
+  // faces above render no glyphs for them and drawtext does no glyph fallback.
+  { key: 'NotoSansCJKkr-Regular',   label: 'CJK (Korean/Chinese/JP)', file: 'NotoSansCJKkr-Regular.otf', cssFamily: 'MomNotoCJK' },
 ]
+
+export const CJK_FONT_KEY = 'NotoSansCJKkr-Regular'
 
 // ─── Preview font loader (same as WASM version) ───────────────────────────────
 const _loadedFonts = new Set()
@@ -65,8 +72,10 @@ export function loadPreviewFont(fontKey) {
   // which loads from file://…/dist/index.html (vite base is './'). Using
   // BASE_URL resolves correctly in both `npm run dev` and the built app.
   const base = import.meta.env.BASE_URL || './'
+  const lf   = preset.file.toLowerCase()
+  const fmt  = lf.endsWith('.otf') ? 'opentype' : lf.endsWith('.ttc') ? 'collection' : 'truetype'
   const style = document.createElement('style')
-  style.textContent = `@font-face{font-family:'${preset.cssFamily}';src:url('${base}ffmpeg/fonts/${preset.file}') format('truetype');font-display:swap;}`
+  style.textContent = `@font-face{font-family:'${preset.cssFamily}';src:url('${base}ffmpeg/fonts/${preset.file}') format('${fmt}');font-display:swap;}`
   document.head.appendChild(style)
   document.fonts.load(`12px '${preset.cssFamily}'`)
   _loadedFonts.add(fontKey)
@@ -191,13 +200,21 @@ function buildDrawtext(seg, W, H, fontPath, textFilePath) {
   // commas, brackets, % — which previously broke the *entire* -vf chain (one bad
   // caption dropped ALL overlays via the s3 fallback). Only the file path needs
   // escaping now, handled by escPath() exactly like the font path.
+  // Multi-line alignment within the wrapped caption. Text is pre-wrapped (Stage 3
+  // via the shared wrapText) and written with '\n'; text_align aligns those lines
+  // within the text block while x/y center the block on the anchor — verified that
+  // x=(w-text_w)/2 keeps the block centered while lines align left/center/right
+  // inside it. line_spacing ≈ the preview's line-height. Mirrors Preview.jsx.
+  const talign = (seg.textAlign === 'left' || seg.textAlign === 'right') ? seg.textAlign : 'center'
+  const lineSpacing = Math.max(0, Math.round(fontSize * 0.15))
   // expansion=none makes the loaded text fully literal — drawtext otherwise runs
   // %{...} text-expansion on the textfile content, so a bare '%' (e.g. "100%")
   // throws "Stray %" and fails the whole pass. With expansion=none every byte of
   // the caption is drawn verbatim.
   return (
     `drawtext=fontfile='${escPath(fontPath)}':textfile='${escPath(textFilePath)}':expansion=none:` +
-    `fontsize=${fontSize}:fontcolor=${color}${shadowPart}${borderPart}:x=${x}:y=${y}:` +
+    `fontsize=${fontSize}:fontcolor=${color}${shadowPart}${borderPart}:` +
+    `text_align=${talign}:line_spacing=${lineSpacing}:x=${x}:y=${y}:` +
     `alpha='${alphaExpr}':enable='between(t,${tStart},${tEnd})'`
   )
 }
@@ -734,20 +751,43 @@ export function useFFmpeg() {
           }
         }
 
-        // Write each caption's text to its own file and reference it via
-        // drawtext `textfile=`. This avoids inlining text into the filter string,
-        // so special characters in captions (apostrophes, colons, commas, …) can
-        // never break the -vf chain and silently drop every overlay.
+        // Resolve the render font per caption (with CJK routing) up front, so the
+        // SAME family drives both the wrap measurement and the drawtext render.
+        // CJK fallback: preset Latin faces (and most custom fonts) have no
+        // Korean/Chinese/Japanese glyphs, and drawtext does no per-glyph fallback,
+        // so such captions would export blank — route them to the bundled CJK font.
+        const presetByKey = Object.fromEntries(PRESET_FONTS.map(f => [f.key, f]))
+        const resolved = activeSegs.map(seg => {
+          let key = seg.fontFile || 'Poppins-Regular'
+          if (key !== CJK_FONT_KEY && hasCJK(seg.text)) key = CJK_FONT_KEY
+          // CSS family used to MEASURE wrapping — must match what will render so
+          // preview and export break at the same points.
+          const family = hasCJK(seg.text) ? 'MomNotoCJK'
+            : key === 'custom'           ? 'MomCustomFont'
+            : (presetByKey[key]?.cssFamily || 'sans-serif')
+          return { seg, key, family }
+        })
+        // Make sure each measuring font is registered/loaded in the renderer before
+        // wrapText measures — otherwise measureText uses a fallback face and the
+        // export would wrap differently from the preview.
+        for (const r of resolved) if (r.key !== 'custom') loadPreviewFont(r.key)
+        try { await document.fonts.ready } catch { /* best-effort */ }
+
+        // Wrap each caption with the shared layout (same algorithm the preview uses)
+        // and write the line-broken text to its own file, referenced via `textfile=`.
+        // textfile (not inline text=) also keeps special chars from breaking the -vf
+        // chain. Lines are joined with '\n'; drawtext renders them as multiple lines.
         const segTextPaths = []
-        for (let si = 0; si < activeSegs.length; si++) {
+        for (let si = 0; si < resolved.length; si++) {
+          const { seg, family } = resolved[si]
+          const wrapped = wrapText(seg.text || '', family, seg.fontSize || 60, seg.boxWidth ?? 80).join('\n')
           const tname = `text_${si}.txt`
           // UTF-8 safe base64 (matches the concat-playlist write above).
-          await api.writeFile(p(tname), btoa(unescape(encodeURIComponent(activeSegs[si].text || ''))))
+          await api.writeFile(p(tname), btoa(unescape(encodeURIComponent(wrapped))))
           segTextPaths.push(fp(tname))
         }
 
-        const vfChain = activeSegs.map((seg, si) => {
-          const key      = seg.fontFile || 'Poppins-Regular'
+        const vfChain = resolved.map(({ seg, key }, si) => {
           const fontPath = (key === 'custom' && fontPathCache['custom'])
             ? fontPathCache['custom']
             : (fontPathCache[key] || fontPathCache['Poppins-Regular'])

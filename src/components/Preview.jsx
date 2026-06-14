@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react'
-import { PRESET_FONTS, loadPreviewFont } from '../hooks/useFFmpeg'
+import { PRESET_FONTS, loadPreviewFont, CJK_FONT_KEY } from '../hooks/useFFmpeg'
+import { hasCJK, wrapText } from '../textLayout'
 import { usePlayhead } from '../playhead'
 import styles from './Preview.module.css'
 
@@ -222,6 +223,11 @@ export default function Preview({
 
   const allFontKeys = [...new Set(textSegments.map(s=>s.fontFile||'Poppins-Regular'))]
   allFontKeys.forEach(k=>{if(k!=='custom')loadPreviewFont(k)})
+  // Mirror the export's CJK fallback in the preview: if any caption contains
+  // Korean/Chinese/Japanese text, load the bundled CJK font so the preview shows
+  // those glyphs in the same face the export will use (not the OS fallback).
+  const anyCJK = textSegments.some(s => hasCJK(s.text))
+  if (anyCJK) loadPreviewFont(CJK_FONT_KEY)
 
   // Load custom font into the browser whenever customFontData changes
   useEffect(() => {
@@ -233,9 +239,17 @@ export default function Preview({
       document.fonts.add(loaded)
     }).catch(() => {})
   }, [textSegments.find(s => s.fontFile === 'custom')?.customFontData])
-  const getFontFamily = (seg)=>{
-    const k=seg.fontFile||'Poppins-Regular'; if(k==='custom')return `'MomCustomFont', sans-serif`
-    const p=PRESET_FONTS.find(f=>f.key===k); return p?.cssFamily?`'${p.cssFamily}', sans-serif`:'sans-serif'
+  // Resolve a caption's render font + the single family name used to MEASURE
+  // wrapping. Mirrors the export exactly: a CJK caption renders entirely in Noto
+  // (drawtext is one-font-per-caption), so the preview previews the real export,
+  // and wrapText measures in the same face the export will use → identical breaks.
+  const famFor = (seg) => {
+    if (hasCJK(seg.text)) return { css: `'MomNotoCJK', sans-serif`, measure: 'MomNotoCJK' }
+    const k = seg.fontFile || 'Poppins-Regular'
+    if (k === 'custom') return { css: `'MomCustomFont', sans-serif`, measure: 'MomCustomFont' }
+    const p = PRESET_FONTS.find(f => f.key === k)
+    const cf = p?.cssFamily || 'sans-serif'
+    return { css: `'${cf}', sans-serif`, measure: cf }
   }
 
   // Text visibility — identical predicate to the FFmpeg export
@@ -273,12 +287,18 @@ export default function Preview({
             const px=previewFontPx(seg)
             const sOff=Math.max(1,Math.round(px*0.06))
             const oFrac=Math.max(0,Math.min(1,(seg.opacity??100)/100))
+            const fam=famFor(seg)
+            // Pre-wrap with the shared layout (same algo + font the export uses) and
+            // render explicit lines, so the preview breaks exactly where the export
+            // will. fit-content + text-align aligns lines within the text block —
+            // matching drawtext's text_align within text_w.
+            const lines=wrapText(seg.text||'', fam.measure, seg.fontSize||60, seg.boxWidth ?? 80)
             return (
               <div key={seg.id} data-textseg
                 className={[isCustom?styles.textOverlayCustom:styles.textOverlay,!isCustom?styles[`pos_${seg.position||'bottom'}`]:'',isPlaying?styles[`anim_${seg.animation||'fade'}`]:''].join(' ')}
-                style={{fontSize:`${px}px`,color:hexToRgba(seg.color,oFrac),fontFamily:getFontFamily(seg),textShadow:seg.shadow!==false?`${sOff}px ${sOff}px ${sOff*1.5}px rgba(0,0,0,${(0.78*oFrac).toFixed(2)})`:'none',...(seg.outline?{WebkitTextStroke:`${Math.max(1,Math.round(px*0.04))}px rgba(0,0,0,${oFrac.toFixed(2)})`,paintOrder:'stroke fill'}:{}),cursor:draggingSegId===seg.id?'grabbing':'grab',...(isCustom?{position:'absolute',left:`${seg.posX??50}%`,top:`${seg.posY??85}%`,transform:'translate(-50%,-50%)',textAlign:'center',width:'max-content',maxWidth:'90%'}:{})}}
+                style={{fontSize:`${px}px`,color:hexToRgba(seg.color,oFrac),fontFamily:fam.css,textShadow:seg.shadow!==false?`${sOff}px ${sOff}px ${sOff*1.5}px rgba(0,0,0,${(0.78*oFrac).toFixed(2)})`:'none',...(seg.outline?{WebkitTextStroke:`${Math.max(1,Math.round(px*0.04))}px rgba(0,0,0,${oFrac.toFixed(2)})`,paintOrder:'stroke fill'}:{}),cursor:draggingSegId===seg.id?'grabbing':'grab',width:'fit-content',maxWidth:`${seg.boxWidth??80}%`,textAlign:seg.textAlign||'center',whiteSpace:'pre',...(isCustom?{position:'absolute',left:`${seg.posX??50}%`,top:`${seg.posY??85}%`,transform:'translate(-50%,-50%)'}:{})}}
                 onMouseDown={e=>onSegMouseDown(e,seg)} title="Drag to reposition">
-                {seg.text}
+                {lines.join('\n')}
               </div>
             )
           })}

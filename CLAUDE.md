@@ -352,8 +352,17 @@ Single custom hook. `App.jsx` calls it once and passes slices down as props — 
   position:     string,       // 'bottom' | 'top' | 'center' | 'custom'
   posX:         number,       // % (0–100), used when position === 'custom'
   posY:         number,       // % (0–100), used when position === 'custom'
+  textAlign:    string,       // 'left' | 'center' | 'right' — alignment of wrapped lines within the box
+  boxWidth:     number,       // % of canvas width — wrap width / max text box width (default 80)
 }
 ```
+
+### Text wrapping & alignment parity (`src/textLayout.js`)
+
+The preview and export wrap captions identically because a **shared** `wrapText(text, fontFamily, fontSize, boxWidthPct)` (offscreen-canvas `measureText` at a fixed `WRAP_REF_W=1280` reference; scale-invariant) computes the line breaks **once** and both renderers honor them literally:
+- **Export** (`useFFmpeg.js` Stage 3) writes the `\n`-joined wrapped lines to the textfile, and `buildDrawtext` adds `text_align=<left|center|right>` + `line_spacing` (one `drawtext` per caption). `x=(w-text_w)/2` centers the block; `text_align` aligns lines within it.
+- **Preview** (`Preview.jsx`) renders the same `wrapText` lines (`white-space: pre`, `width: fit-content`, `max-width: boxWidth%`, `text-align`).
+- Both measure with the **resolved render font** (`famFor`): a CJK caption is measured/rendered entirely in Noto in **both** preview and export (drawtext is one-font-per-caption), so the preview previews the real export. Manual `\n` are honored as hard breaks; over-long single words are hard-broken by character.
 
 **Important:** `endTime` is never stored on text segments. `buildDrawtext` always derives it as `startTime + duration`. Never add an `endTime` field to the segment schema.
 
@@ -517,6 +526,9 @@ All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via 
 | `LiberationSans-Bold` | Sans Bold | LiberationSans-Bold.ttf | OFL |
 | `LiberationSerif-Regular` | Serif | LiberationSerif-Regular.ttf | OFL |
 | `LiberationMono-Regular` | Mono | LiberationMono-Regular.ttf | OFL |
+| `NotoSansCJKkr-Regular` | CJK (Korean/Chinese/JP) | NotoSansCJKkr-Regular.otf | OFL · Noto |
+
+**CJK fallback (`useFFmpeg.js`):** the Latin preset faces above contain no Korean/Chinese/Japanese glyphs, and FFmpeg `drawtext` does **no per-glyph fallback** (one font face per caption), so CJK text would export as `.notdef` tofu boxes / blanks. `hasCJK(text)` (a Unicode-range test) detects such captions and the export routes them to the bundled `NotoSansCJKkr-Regular.otf` (covers Latin + Hangul + Han + kana in one OFL file). This applies to **every** font selection including custom-uploaded fonts (which usually lack CJK glyphs too); pure-Latin captions keep the user's chosen/custom font. The preview mirrors this by appending `'MomNotoCJK'` to the CSS font stack and lazy-loading the font only when a caption contains CJK. **Note:** `.otf`/`.ttc` need the matching `@font-face` `format()` (`opentype`/`collection`) in `loadPreviewFont`, and the `extraResources` filter must include `**/*.otf` or the font won't ship.
 
 ---
 
@@ -629,6 +641,9 @@ FFmpeg's `drawtext` filter uses `:` as its option separator. Windows drive lette
 
 ### Text overlays silently dropped on captions with special characters
 Caption text was inlined as `drawtext=…:text='<escaped>'`. The escape pass ran in the wrong order (`'` → `\'` *before* `\` → `\\`), so an apostrophe became `It\\'s`, whose `'` closed the quote early and produced an invalid `-vf` chain. Because **all** captions share one `-vf` chain, one bad caption made the whole text pass fail → the `s3-text` `fallbackOnFail` copied the video through with **zero overlays**. Reported as "text doesn't show, especially with trimmed clips / a mix of fonts" — really any caption containing `'`, `:`, `,`, `[`, `]`, `%`, or `\`. Fixed by **not inlining text at all**: each caption is written to `text_N.txt` in the temp dir and referenced via drawtext `textfile=` (only the path is escaped, via the same `escPath` used for fonts), plus `expansion=none` so drawtext does no `%{...}` expansion on the file content (a bare `%` like "100%" otherwise throws "Stray %"). Verified with a multi-font, multi-caption smoke test covering all the above characters.
+
+### CJK (Korean/Chinese/Japanese) text overlays missing from export
+Captions in Korean/Chinese rendered fine in the preview but exported as blank/tofu — only Latin text showed. Cause: every bundled preset font is Latin-only, and FFmpeg `drawtext` uses one font face per caption with no per-glyph fallback, so it draws `.notdef` boxes (or nothing) for CJK codepoints. The preview "worked" only because the browser does CSS per-glyph fallback to OS fonts. Fixed by bundling `NotoSansCJKkr-Regular.otf` (OFL; Latin + Hangul + Han + kana) and auto-routing any caption matching `hasCJK()` to it on export — same on Linux and Windows. Required three companion changes: `loadPreviewFont` must emit `format('opentype')` for `.otf`, the `extraResources` font filter must include `**/*.otf`, and the preview font stack appends `'MomNotoCJK'` (lazy-loaded when CJK is present) so preview ≈ export. Verified with FFmpeg renders of Korean/Chinese/mixed strings.
 
 ### Windows build icon error
 `package.json` pointed `win.icon` and `linux.icon` at `public/favicon.svg`. electron-builder's icon converter cannot process SVG. Fixed by generating `public/icon.png` (256×256 RGBA PNG from the SVG) and pointing both targets at it.

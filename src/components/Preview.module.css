@@ -57,9 +57,11 @@
 }
 
 /* Text overlays — preset positions */
+/* Box is centered horizontally; width/max-width/text-align/white-space are set
+   inline per-caption (box width % + alignment). pos_* set the vertical anchor. */
 .textOverlay {
-  position: absolute; left: 0; right: 0;
-  text-align: center; padding: 0 14px; pointer-events: auto;
+  position: absolute; left: 50%; transform: translateX(-50%);
+  pointer-events: auto;
   font-family: 'Syne', sans-serif;
   text-shadow: 0 2px 8px rgba(0,0,0,.85); line-height: 1.3;
   cursor: grab;
@@ -67,14 +69,14 @@
 .textOverlay:active { cursor: grabbing; }
 .pos_bottom { bottom: 14px; }
 .pos_top    { top: 14px; }
-.pos_center { top: 50%; transform: translateY(-50%); }
+.pos_center { top: 50%; transform: translate(-50%, -50%); }
 
-/* Custom-positioned text */
+/* Custom-positioned text — left/top % + translate set inline. */
 .textOverlayCustom {
   position: absolute;
   font-family: 'Syne', sans-serif;
   text-shadow: 0 2px 8px rgba(0,0,0,.85); line-height: 1.3;
-  pointer-events: auto; white-space: pre-wrap;
+  pointer-events: auto;
 }
 
 .anim_fade       { animation: fadeIn .5s ease forwards; }

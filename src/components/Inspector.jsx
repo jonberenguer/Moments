@@ -379,6 +379,13 @@ function TextPanel({ seg, onUpdate }) {
           <button className={styles.uploadFontSmall} onClick={()=>fontUploadRef.current?.click()}>Upload font…</button>
           <input ref={fontUploadRef} type="file" accept=".ttf,.otf,.woff" style={{display:'none'}} onChange={handleFontUpload}/>
         </div>
+        <Slider label="Box width" value={seg.boxWidth??80} min={20} max={100} step={1} format={v=>`${v}%`} onChange={v=>onUpdate({boxWidth:v})}/>
+        <div className={styles.metaRow}><span className={styles.metaKey}>Align</span>
+          <select className={styles.selectSmall} value={seg.textAlign||'center'} onChange={e=>onUpdate({textAlign:e.target.value})}>
+            <option value="left">Left</option>
+            <option value="center">Center</option>
+            <option value="right">Right</option>
+          </select></div>
       </div>
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Position & Animation</div>

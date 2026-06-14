@@ -189,7 +189,7 @@ export function useMediaStore() {
   // ── Text segments ─────────────────────────────────────────────────────────
   const addTextSegment = useCallback((startTime=0) => {
     segCounter.current++
-    const seg = { id:`seg_${segCounter.current}`, text:'Caption', startTime, duration:3, animation:'fade', fontSize:60, color:'#ffffff', opacity:100, shadow:true, outline:false, fontFile:'Poppins-Regular', customFontName:null, position:'custom', posX:50, posY:50 }
+    const seg = { id:`seg_${segCounter.current}`, text:'Caption', startTime, duration:3, animation:'fade', fontSize:60, color:'#ffffff', opacity:100, shadow:true, outline:false, fontFile:'Poppins-Regular', customFontName:null, position:'custom', posX:50, posY:50, textAlign:'center', boxWidth:80 }
     setTextSegments(prev => [...prev, seg])
     setActiveSelection({ type:'text', id:seg.id })
     return seg.id
@@ -309,7 +309,7 @@ export function useMediaStore() {
       segFontKey[s.id] = key
     }
     const w = {
-      version: 10,
+      version: 11,
       title: momentTitle, aspectRatio, quality, musicVolume,
       globalTransition, transitionDuration,
       endFadeVideo, endFadeVideoDuration, endFadeAudio, endFadeAudioDuration,
@@ -348,7 +348,7 @@ export function useMediaStore() {
       const w = JSON.parse(json)
       // Version guard: warn on unknown future versions but still attempt load
       const v = w.version ?? 1
-      if (v > 10) console.warn(`Workflow version ${v} is newer than this app (v10); some settings may not load correctly.`)
+      if (v > 11) console.warn(`Workflow version ${v} is newer than this app (v11); some settings may not load correctly.`)
 
       playhead.set(0)   // rewind the playhead — old position is meaningless for a fresh project
       setMomentTitle(w.title || 'My Moment')
@@ -411,7 +411,7 @@ export function useMediaStore() {
       }
 
       if (w.textSegments) setTextSegments(w.textSegments.map(s => {
-        const base = { fontFile: 'Poppins-Regular', posX: 50, posY: 85, position: 'bottom', opacity: 100, shadow: true, outline: false, ...s }
+        const base = { fontFile: 'Poppins-Regular', posX: 50, posY: 85, position: 'bottom', opacity: 100, shadow: true, outline: false, textAlign: 'center', boxWidth: 80, ...s }
         if (base.fontFile === 'custom' && base.customFontName) {
           // Try hash key first (v10), fall back to name key (v9 backward compat)
           const data = fontDataMap[base._fontKey] ?? fontDataMap[base.customFontName]

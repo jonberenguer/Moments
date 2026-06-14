@@ -65,7 +65,8 @@
         "from": "public/ffmpeg/fonts",
         "to": "ffmpeg/fonts",
         "filter": [
-          "**/*.ttf"
+          "**/*.ttf",
+          "**/*.otf"
         ]
       }
     ],
