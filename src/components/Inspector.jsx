@@ -289,6 +289,14 @@ function ClipPanel({ clip, onUpdate, globalTransition, onGlobalTransitionChange,
         <button className={styles.resetBtn} onClick={()=>onUpdate(clip.id,{brightness:0,contrast:0,saturation:0})}>Reset adjustments</button>
       </div>
       <div className={styles.section}>
+        <div className={styles.sectionTitle}>Transform</div>
+        <Slider label="Scale"    value={Math.round((clip.scale??1)*100)} min={10} max={300} step={5} format={v=>`${v}%`} onChange={v=>onUpdate(clip.id,{scale:v/100})}/>
+        <Slider label="Rotation" value={clip.rotation??0} min={-180} max={180} step={1} format={v=>`${v}°`} onChange={v=>onUpdate(clip.id,{rotation:v})}/>
+        <Slider label="X position" value={clip.offsetX??0} min={-100} max={100} step={1} format={v=>`${v}%`} onChange={v=>onUpdate(clip.id,{offsetX:v})}/>
+        <Slider label="Y position" value={clip.offsetY??0} min={-100} max={100} step={1} format={v=>`${v}%`} onChange={v=>onUpdate(clip.id,{offsetY:v})}/>
+        <button className={styles.resetBtn} onClick={()=>onUpdate(clip.id,{scale:1,rotation:0,offsetX:0,offsetY:0})}>Reset transform</button>
+      </div>
+      <div className={styles.section}>
         <div className={styles.sectionTitle}>Transition</div>
         <select className={styles.select} value={clip.transition||''} onChange={e=>onUpdate(clip.id,{transition:e.target.value||null})}>
           {TRANSITIONS.map(t=><option key={t.value} value={t.value}>{t.label}</option>)}

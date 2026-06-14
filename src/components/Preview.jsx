@@ -262,6 +262,17 @@ export default function Preview({
     ? { width: 'min(100cqw, 100cqh * 9 / 16)', aspectRatio: '9 / 16' }
     : { width: 'min(100cqw, 100cqh * 16 / 9)', aspectRatio: '16 / 9' }
 
+  // Phase A clip transform (preview). translate is % of the canvas (element is
+  // 100% of the canvas-aspect screen), scale/rotate around centre — same model the
+  // export composites. Mutually exclusive with the Ken Burns effect (both drive
+  // transform), so when a transform is set we drop the effect class.
+  // Transform applies to non-blur clips for now (blur+transform is a follow-up);
+  // gated here so the preview matches the export, which only transforms non-blur.
+  const tfHas = clip && !clip.blurBackground && ((clip.scale ?? 1) !== 1 || (clip.rotation ?? 0) !== 0 || (clip.offsetX ?? 0) !== 0 || (clip.offsetY ?? 0) !== 0)
+  const tfStyle = tfHas
+    ? `translate(${clip.offsetX || 0}%, ${clip.offsetY || 0}%) scale(${clip.scale ?? 1}) rotate(${clip.rotation || 0}deg)`
+    : undefined
+
   return (
     <div className={styles.wrapper}>
       <div className={styles.viewportWrap}>
@@ -276,8 +287,8 @@ export default function Preview({
                   ?<img src={clip.url} className={styles.blurBg} aria-hidden="true" draggable={false}/>
                   :<video ref={bgVideoRef} src={clip.url} className={styles.blurBg} muted aria-hidden="true"/>)}
                 {clip.type==='image'
-                  ?<img src={clip.url} alt={clip.name} className={[styles.mediaEl, getEffectClass(clip)].filter(Boolean).join(' ')} draggable={false} style={{filter:filterStyle}}/>
-                  :<video ref={videoRef} src={clip.url} className={styles.mediaEl} muted={isMuted} style={{filter:filterStyle}}/>}
+                  ?<img src={clip.url} alt={clip.name} className={[styles.mediaEl, tfHas?'':getEffectClass(clip)].filter(Boolean).join(' ')} draggable={false} style={{filter:filterStyle, transform:tfStyle}}/>
+                  :<video ref={videoRef} src={clip.url} className={styles.mediaEl} muted={isMuted} style={{filter:filterStyle, transform:tfStyle}}/>}
               </>
             ):clip?._needsMedia?(
               <div className={styles.needsMedia}><span className={styles.nmIcon}>⚠</span><span className={styles.nmName}>{clip.name}</span><span className={styles.nmHint}>Re-add file</span></div>

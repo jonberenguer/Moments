@@ -128,6 +128,9 @@ export function useMediaStore() {
       viewZoom:1, viewPanX:0, viewPanY:0, // kept for workflow backward compat (ignored by export)
       includeAudio:true, blurBackground:false, mediaId:mediaItem.id,
       imageEffect:null,
+      // Phase A clip transform (applied in preview + export): rotation in degrees,
+      // scale as a multiplier, offsetX/offsetY as % of the canvas from centre.
+      rotation:0, scale:1, offsetX:0, offsetY:0,
     }
     setClips(prev => [...prev, clip])
     setActiveClipId(clip.id)
@@ -164,6 +167,7 @@ export function useMediaStore() {
         trimStart:0, trimEnd:null, brightness:0, contrast:0, saturation:0, speed:1,
         transition:null, transitionDuration:null, viewZoom:1, viewPanX:0, viewPanY:0, // kept for workflow backward compat
         includeAudio:true, blurBackground:false, mediaId, imageEffect:null,
+        rotation:0, scale:1, offsetX:0, offsetY:0, // Phase A clip transform
       })
     })
     setMediaLibrary(prev => [...prev, ...newMedia])
@@ -317,7 +321,7 @@ export function useMediaStore() {
       segFontKey[s.id] = key
     }
     const w = {
-      version: 11,
+      version: 12,
       title: momentTitle, aspectRatio, quality, musicVolume,
       globalTransition, transitionDuration,
       endFadeVideo, endFadeVideoDuration, endFadeAudio, endFadeAudioDuration,
@@ -329,6 +333,7 @@ export function useMediaStore() {
         brightness:c.brightness, contrast:c.contrast, saturation:c.saturation,
         speed:c.speed, transition:c.transition, transitionDuration:c.transitionDuration,
         viewZoom:c.viewZoom, viewPanX:c.viewPanX, viewPanY:c.viewPanY, // preserved for backward compat on load
+        rotation:c.rotation, scale:c.scale, offsetX:c.offsetX, offsetY:c.offsetY, // clip transform
         includeAudio:c.includeAudio, blurBackground:c.blurBackground, imageEffect:c.imageEffect,
       })),
       textSegments: textSegments.map(s => ({
@@ -356,7 +361,7 @@ export function useMediaStore() {
       const w = JSON.parse(json)
       // Version guard: warn on unknown future versions but still attempt load
       const v = w.version ?? 1
-      if (v > 11) console.warn(`Workflow version ${v} is newer than this app (v11); some settings may not load correctly.`)
+      if (v > 12) console.warn(`Workflow version ${v} is newer than this app (v12); some settings may not load correctly.`)
 
       playhead.set(0)   // rewind the playhead — old position is meaningless for a fresh project
       setMomentTitle(w.title || 'My Moment')
@@ -393,6 +398,10 @@ export function useMediaStore() {
         viewZoom:       c.viewZoom       ?? 1,
         viewPanX:       c.viewPanX       ?? 0,
         viewPanY:       c.viewPanY       ?? 0,
+        rotation:       c.rotation       ?? 0,
+        scale:          c.scale          ?? 1,
+        offsetX:        c.offsetX        ?? 0,
+        offsetY:        c.offsetY        ?? 0,
         includeAudio:   c.includeAudio   ?? true,
         blurBackground: c.blurBackground ?? false,
         imageEffect:    c.imageEffect    ?? null,

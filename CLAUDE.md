@@ -327,6 +327,10 @@ Single custom hook. `App.jsx` calls it once and passes slices down as props — 
   viewZoom:         number,       // Retained for workflow backward compat — ignored by export
   viewPanX:         number,       // Retained for workflow backward compat — ignored by export
   viewPanY:         number,       // Retained for workflow backward compat — ignored by export
+  rotation:         number,       // Phase A transform — degrees, clockwise (default 0)
+  scale:            number,       // Phase A transform — multiplier (default 1)
+  offsetX:          number,       // Phase A transform — % of canvas width from centre (default 0)
+  offsetY:          number,       // Phase A transform — % of canvas height from centre (default 0)
   includeAudio:     boolean,
   blurBackground:   boolean,
   imageEffect:      string | null,// 'ken_burns'|'fade_in'|null
@@ -384,7 +388,7 @@ endFadeAudio:         boolean
 endFadeAudioDuration: number   // 0.5–5s
 ```
 
-### Workflow save/load (version 10)
+### Workflow save/load (version 12)
 
 `saveWorkflow()` serialises to JSON. `loadWorkflow(json)` handles v9 and v10 automatically. Version guard logs a warning for versions > 10 but still attempts load.
 
@@ -405,6 +409,21 @@ Every `seg_N.mp4` delivered to Stage 2 must conform exactly:
 | Frame rate | 30 fps CFR |
 | Timebase | 1/90000 |
 | Audio codec | AAC 128k stereo 44100 Hz |
+
+#### Clip transform path (Phase A — rotate / resize / move)
+
+When a clip has a non-identity transform (`clipHasTransform(c)` → `scale≠1 || rotation≠0 || offsetX≠0 || offsetY≠0`), the **non-blur** image and video paths route through `buildTransformOverlay(srcLabel, bgLabel, W, H, c, extra)` instead of fit→pad:
+
+```
+fit (decrease, NO pad) → [eq/speed] → format=rgba → scale=iw*S:ih*S
+  → rotate=θrad:fillcolor=none (ow/oh grown to the rotated bbox, transparent corners)
+  → overlay onto [bg] at (main_w-overlay_w)/2 + offsetX·main_w : (main_h-overlay_h)/2 + offsetY·main_h
+```
+
+- `bg` = `color=c=black:s=WxH` for non-blur. The overlay clips to the canvas, matching the preview's `overflow:hidden`.
+- **Geometry is verified against the preview** via an offscreen-render calibration harness (headless Chromium replica of the preview CSS vs FFmpeg, pixel-compared). FFmpeg `rotate=+rad` matches CSS `rotate(+deg)` (both clockwise); uniform scale commutes with rotation so the FFmpeg scale-then-rotate equals the CSS rotate-then-scale.
+- **Mutually exclusive** with Ken Burns (`imageEffect`) — a transform skips `effectVf`. **Blur background + transform** is not yet composed: transform is gated off for blur clips in *both* preview and export (a follow-up), so they stay consistent.
+- Preview mirror: `Preview.jsx` applies `transform: translate(offsetX%, offsetY%) scale(scale) rotate(rotation deg)` (translate % is % of the canvas since the media element is 100% of the canvas-aspect screen).
 
 #### Image clip path
 

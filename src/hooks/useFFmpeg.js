@@ -112,6 +112,40 @@ function buildImageEffectVf(effect, W, H, duration) {
   }
 }
 
+// True when a clip has a non-identity Phase A transform.
+function clipHasTransform(c) {
+  return (c?.scale ?? 1) !== 1 || (c?.rotation ?? 0) !== 0 || (c?.offsetX ?? 0) !== 0 || (c?.offsetY ?? 0) !== 0
+}
+
+// Phase A clip transform composite (export), mirroring the preview CSS transform
+// translate(offX%,offY%) scale(S) rotate(θ): fit the media to the canvas (no pad —
+// transparent letterbox), scale, rotate around centre with transparent corners,
+// then overlay onto `bgLabel` at the offset (overlay clips to the canvas, matching
+// the preview's overflow:hidden). Returns the filter_complex fragment producing
+// [vout] from `srcLabel` (raw media input, e.g. '[0:v]') over `[bgLabel]` (W×H bg).
+// `extra` = any per-clip chain (eq / speed) applied to the fitted media first.
+function buildTransformOverlay(srcLabel, bgLabel, W, H, c, extra) {
+  const S    = c.scale ?? 1
+  const rot  = (c.rotation ?? 0) * Math.PI / 180   // CSS rotate() is clockwise; FFmpeg rotate matches
+  const offX = (c.offsetX ?? 0) / 100
+  const offY = (c.offsetY ?? 0) / 100
+  const fit  = `scale=${W}:${H}:force_original_aspect_ratio=decrease,setsar=1`
+  const parts = []
+  let cur = '_tf0'
+  parts.push(`${srcLabel}${fit}${extra ? ',' + extra : ''},format=rgba[${cur}]`)
+  if (S !== 1) { parts.push(`[${cur}]scale=iw*${S}:ih*${S}[_tfs]`); cur = '_tfs' }
+  if (rot !== 0) {
+    // Grow the output to the rotated bounding box (cos/sin precomputed) so corners
+    // aren't clipped before the overlay; fillcolor=none keeps them transparent.
+    const co = Math.abs(Math.cos(rot)).toFixed(6), si = Math.abs(Math.sin(rot)).toFixed(6)
+    parts.push(`[${cur}]rotate=${rot.toFixed(6)}:fillcolor=none:ow=iw*${co}+ih*${si}:oh=iw*${si}+ih*${co}[_tfr]`); cur = '_tfr'
+  }
+  const ox = `(main_w-overlay_w)/2+(${offX.toFixed(6)})*main_w`
+  const oy = `(main_h-overlay_h)/2+(${offY.toFixed(6)})*main_h`
+  parts.push(`[${bgLabel}][${cur}]overlay=${ox}:${oy}:shortest=1,format=yuv420p[vout]`)
+  return parts.join(';')
+}
+
 // Build one drawtext PER LINE of a caption, pinning each line at its baseline
 // (y_align=baseline) at the exact y the preview's CSS line box renders it.
 // Verified pixel-identical to the preview (offscreen-render calibration) for
@@ -527,6 +561,28 @@ export function useFFmpeg() {
             continue
           }
 
+          if (clipHasTransform(c)) {
+            // ── Transform: scale/rotate/move over a black canvas ─────────
+            // Ken Burns (effectVf) is mutually exclusive with a transform → skipped.
+            const fc = `color=c=black:s=${W}x${H}:r=${SEG_FPS}[_tfbg];`
+              + buildTransformOverlay('[0:v]', '_tfbg', W, H, c, eqFilter)
+            steps.push({
+              label: `img-tf[${i}]`,
+              args: [
+                '-loop', '1', '-r', String(SEG_FPS), '-i', fp(c._fname),
+                '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+                '-filter_complex', fc,
+                '-map', '[vout]', '-map', '1:a:0',
+                '-t', durStr,
+                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                '-r', String(SEG_FPS), '-fps_mode', 'cfr',
+                '-video_track_timescale', String(SEG_TIMEBASE),
+                '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
+                '-t', durStr, '-y', fp(segFile),
+              ],
+            })
+            segments.push({ file: segFile, actualDur, clip: c })
+          } else {
           // ── Non-blur: fit → pad → optional effect/EQ ─────────────────
           // Use -vf (simple filtergraph) with -r as input option so the image
           // loop generates frames at the correct rate before reaching zoompan.
@@ -551,6 +607,7 @@ export function useFFmpeg() {
             ],
           })
           segments.push({ file: segFile, actualDur, clip: c })
+          }
 
         } else {
           // ── VIDEO: audio extraction + placement encode ────────────────
@@ -624,6 +681,27 @@ export function useFFmpeg() {
                 '-video_track_timescale', String(SEG_TIMEBASE),
                 '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
                 '-t', durStr, '-y', fp(segFile),
+              ],
+            })
+            segments.push({ file: segFile, actualDur, clip: c })
+          } else if (clipHasTransform(c)) {
+            // ── Transform video: scale/rotate/move over a black canvas ────
+            const extra = [speedVf, eqFilter].filter(Boolean).join(',')
+            const fc = `color=c=black:s=${W}x${H}:r=${SEG_FPS}[_tfbg];`
+              + buildTransformOverlay('[0:v]', '_tfbg', W, H, c, extra)
+            steps.push({
+              label: `vid-tf[${i}]`,
+              args: [
+                '-ss', String(ts), '-i', fp(c._fname), '-t', String(srcDur),
+                '-i', fp(audOut),
+                '-filter_complex', fc,
+                '-map', '[vout]', '-map', '1:a',
+                '-t', durStr,
+                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                '-r', String(SEG_FPS), '-fps_mode', 'cfr',
+                '-video_track_timescale', String(SEG_TIMEBASE),
+                '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
+                '-y', fp(segFile),
               ],
             })
             segments.push({ file: segFile, actualDur, clip: c })
