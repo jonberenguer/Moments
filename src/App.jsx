@@ -149,6 +149,10 @@ export default function App() {
             clipPlayLen={store.clipPlayLen}
             timelineDuration={store.timelineDuration}
             timeline={store.timeline}
+            musicFile={store.musicFile}
+            musicVolume={store.musicVolume}
+            musicTrimStart={store.musicTrimStart}
+            musicTrimEnd={store.musicTrimEnd}
           />{/* currentTime not passed — Preview subscribes to the playhead store directly */}
 
           <Timeline

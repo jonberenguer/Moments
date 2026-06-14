@@ -20,6 +20,10 @@ export default function Preview({
   clipPlayLen = (c) => c?.duration || 4,
   timelineDuration = 0,
   timeline = [],
+  musicFile = null,
+  musicVolume = 70,
+  musicTrimStart = 0,
+  musicTrimEnd = null,
 }) {
   // Playhead comes from the external store — this is the only subscription that
   // re-renders Preview each frame during playback (App/Timeline body do not).
@@ -33,6 +37,7 @@ export default function Preview({
   const screenRef  = useRef(null)
   const videoRef   = useRef(null)
   const bgVideoRef = useRef(null)   // blurred background copy (blurBackground clips)
+  const audioRef   = useRef(null)   // background music, synced to the playhead
   // Latest values funnelled through a ref so the rAF loop and convergence
   // effects don't need unstable callbacks/props in their dependency arrays.
   const timeRef = useRef(currentTime)
@@ -147,6 +152,58 @@ export default function Preview({
     if (Math.abs(bg.currentTime - srcTime) > 0.1) bg.currentTime = srcTime
     if (isPlaying) bg.play().catch(() => {}); else bg.pause()
   }, [clip?.id, isPlaying, currentTime, srcTime, playRate]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Background music sync ───────────────────────────────────────────────────
+  // A hidden <audio> rides the same playhead so the preview plays what the
+  // export mixes: music starts at the timeline's t=0 mapped to musicTrimStart,
+  // and the export uses atrim→amix=duration=first, so it stops at trimEnd (or
+  // when the file/timeline ends). Volume/mute mirror the export + preview mute.
+  const [musicUrl, setMusicUrl] = useState(null)
+  useEffect(() => {
+    if (!musicFile) { setMusicUrl(null); return }
+    const url = URL.createObjectURL(musicFile)
+    setMusicUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [musicFile])
+  useEffect(() => {
+    const a = audioRef.current
+    if (!a) return
+    a.volume = Math.max(0, Math.min(1, (musicVolume ?? 70) / 100))
+    a.muted  = isMuted
+  }, [musicVolume, isMuted, musicUrl])
+  // Play/pause + seek to the trimmed start. The seek must wait until the element
+  // is seekable — on a freshly-mounted <audio> (blob src) readyState is 0 and an
+  // early currentTime= is clamped/ignored, so play() would start from 0 instead
+  // of musicTrimStart. Defer the seek to 'loadedmetadata' when not yet ready.
+  useEffect(() => {
+    const a = audioRef.current
+    if (!a || !musicUrl) return
+    if (!isPlaying) { a.pause(); return }
+    let cancelled = false
+    const seekAndPlay = () => {
+      if (cancelled) return
+      const target = (musicTrimStart || 0) + timeRef.current
+      try { a.currentTime = target } catch { /* not seekable yet */ }
+      a.play().catch(() => {})
+    }
+    if (a.readyState >= 1) seekAndPlay()
+    else a.addEventListener('loadedmetadata', seekAndPlay, { once: true })
+    return () => { cancelled = true; a.removeEventListener('loadedmetadata', seekAndPlay) }
+  }, [isPlaying, musicUrl, musicTrimStart])
+  // Keep music aligned to the playhead on scrub/skip (large jumps only, so we
+  // don't stutter steady playback), and stop at trimEnd / timeline end.
+  useEffect(() => {
+    const a = audioRef.current
+    if (!a || !musicUrl) return
+    const target = (musicTrimStart || 0) + currentTime
+    const end    = (typeof musicTrimEnd === 'number' ? musicTrimEnd : (a.duration || Infinity))
+    if (target >= end || currentTime >= total) {
+      if (!a.paused) a.pause()
+      return
+    }
+    if (isPlaying && a.paused) a.play().catch(() => {})
+    if (a.readyState >= 1 && Math.abs(a.currentTime - target) > 0.3) a.currentTime = target
+  }, [currentTime, isPlaying, musicUrl, musicTrimStart, musicTrimEnd, total])
 
   // ── Clip-change transition flourish (restores animated transitions) ─────────
   const prevClipRef = useRef(curClipId)
@@ -276,6 +333,9 @@ export default function Preview({
 
   return (
     <div className={styles.wrapper}>
+      {/* Background music — hidden, lives outside the per-clip media layer so it
+          isn't remounted on clip changes; synced to the playhead by the effects above. */}
+      {musicUrl && <audio ref={audioRef} src={musicUrl} preload="auto" style={{ display: 'none' }} />}
       <div className={styles.viewportWrap}>
         <div ref={screenRef}
           className={styles.screen}
