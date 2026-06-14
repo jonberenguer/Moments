@@ -112,36 +112,36 @@ function buildImageEffectVf(effect, W, H, duration) {
   }
 }
 
-function buildDrawtext(seg, W, H, fontPath, textFilePath) {
-  // Scale fontSize from the design base to export canvas width.
-  // The Inspector stores fontSize in "preview px" units; export scales to W/1280 reference.
-  const fontSize  = Math.round((seg.fontSize || 60) * (W / 1280))
-  const color     = (seg.color || '#ffffff').replace('#', '')
+// Build one drawtext PER LINE of a caption, pinning each line at its baseline
+// (y_align=baseline) at the exact y the preview's CSS line box renders it.
+// Verified pixel-identical to the preview (offscreen-render calibration) for
+// single AND multi-line. The preview centers a line-box block (line-height 1.3 ×
+// N lines) on the anchor; we reproduce it from the font's metrics. fontAsc/fontDesc
+// come from canvas measureText (passed from Stage 3, the same metrics the browser's
+// line box uses); lineWidths are each wrapped line's width (for left/right align).
+// Per-line drawtext avoids depending on FreeType's internal line pitch (which
+// differs from the browser's — the cause of the earlier drift/clipping).
+function buildCaptionDrawtexts(seg, W, H, fontPath, lineFiles, lineWidths, fontAsc, fontDesc) {
+  const fontSize = Math.round((seg.fontSize || 60) * (W / 1280))
+  const color    = (seg.color || '#ffffff').replace('#', '')
+  const N        = lineFiles.length
+  const lineHeightPx = 1.3 * fontSize           // matches Preview CSS line-height:1.3
+  const margin   = Math.round(14 * (H / 720))   // matches preview pos_bottom/top (14px, scaled)
+  const blockH   = N * lineHeightPx
 
-  // Resolve x/y from position preset or custom posX/posY percentages.
-  // Preview CSS: preset positions use bottom:14px / top:14px / center.
-  //              custom uses left:posX%, top:posY%, transform:translate(-50%,-50%).
-  // Scale the 14px margin proportionally to canvas height.
-  const margin = Math.round(14 * (H / 720))
-  let x, y
+  // Block anchor per position — mirrors Preview.jsx: custom centres the block on
+  // (posX%,posY%); presets centre horizontally and pin top/centre/bottom.
   const pos = seg.position || 'bottom'
-  if (pos === 'custom') {
-    // posX/posY are percentages (0–100); text is centered on that point.
-    const pctX = (seg.posX ?? 50) / 100
-    const pctY = (seg.posY ?? 85) / 100
-    x = `${Math.round(W * pctX)}-text_w/2`
-    y = `${Math.round(H * pctY)}-text_h/2`
-  } else if (pos === 'top') {
-    x = `(w-text_w)/2`
-    y = String(margin)
-  } else if (pos === 'center') {
-    x = `(w-text_w)/2`
-    y = `(h-text_h)/2`
-  } else {
-    // 'bottom' (default)
-    x = `(w-text_w)/2`
-    y = `h-text_h-${margin}`
-  }
+  let blockTop, blockCx
+  if (pos === 'custom')      { blockCx = W * ((seg.posX ?? 50) / 100); blockTop = H * ((seg.posY ?? 85) / 100) - blockH / 2 }
+  else if (pos === 'top')    { blockCx = W / 2; blockTop = margin }
+  else if (pos === 'center') { blockCx = W / 2; blockTop = (H - blockH) / 2 }
+  else                       { blockCx = W / 2; blockTop = H - margin - blockH }   // bottom
+
+  // First line's baseline from the block top = CSS half-leading + font ascent.
+  const halfLeading   = (lineHeightPx - (fontAsc + fontDesc)) / 2
+  const firstBaseline = blockTop + halfLeading + fontAsc
+  const blockW        = Math.max(1, ...lineWidths)
 
   const tStart    = (seg.startTime || 0).toFixed(4)
   // endTime is not stored on segments — derive it from startTime + duration.
@@ -200,28 +200,24 @@ function buildDrawtext(seg, W, H, fontPath, textFilePath) {
   // commas, brackets, % — which previously broke the *entire* -vf chain (one bad
   // caption dropped ALL overlays via the s3 fallback). Only the file path needs
   // escaping now, handled by escPath() exactly like the font path.
-  // Multi-line alignment within the wrapped caption. Text is pre-wrapped (Stage 3
-  // via the shared wrapText) and written with '\n'; text_align aligns those lines
-  // within the text block while x/y center the block on the anchor — verified that
-  // x=(w-text_w)/2 keeps the block centered while lines align left/center/right
-  // inside it. line_spacing ≈ the preview's line-height. Mirrors Preview.jsx.
+  // Alignment → per-line x: centre each line on the anchor, or pin to the block's
+  // left/right edge (blockW = widest line). expansion=none keeps bytes literal.
   const talign = (seg.textAlign === 'left' || seg.textAlign === 'right') ? seg.textAlign : 'center'
-  const lineSpacing = Math.max(0, Math.round(fontSize * 0.15))
-  // NOTE: keep the default y_align (=text). It centers the whole multi-line block
-  // via text_h (y=posY-text_h/2 → block centered on the anchor). `y_align=font`
-  // was tried to tighten single-line vertical match with the preview, but it
-  // re-references y per the first line's font metrics and pushes multi-line blocks
-  // DOWN, clipping the last lines off the bottom — do not reintroduce it.
-  // expansion=none makes the loaded text fully literal — drawtext otherwise runs
-  // %{...} text-expansion on the textfile content, so a bare '%' (e.g. "100%")
-  // throws "Stray %" and fails the whole pass. With expansion=none every byte of
-  // the caption is drawn verbatim.
-  return (
-    `drawtext=fontfile='${escPath(fontPath)}':textfile='${escPath(textFilePath)}':expansion=none:` +
-    `fontsize=${fontSize}:fontcolor=${color}${shadowPart}${borderPart}:` +
-    `text_align=${talign}:line_spacing=${lineSpacing}:x=${x}:y=${y}:` +
-    `alpha='${alphaExpr}':enable='between(t,${tStart},${tEnd})'`
-  )
+  // One drawtext per line, each pinned at its baseline (y_align=baseline) at the y
+  // the preview renders it — see the calibration note on the function header.
+  return lineFiles.map((lf, i) => {
+    const baseline = Math.round(firstBaseline + i * lineHeightPx)
+    let x
+    if (talign === 'left')        x = `${Math.round(blockCx - blockW / 2)}`
+    else if (talign === 'right')  x = `${Math.round(blockCx + blockW / 2)}-text_w`
+    else                          x = `${Math.round(blockCx)}-text_w/2`
+    return (
+      `drawtext=fontfile='${escPath(fontPath)}':textfile='${escPath(lf)}':expansion=none:` +
+      `fontsize=${fontSize}:fontcolor=${color}${shadowPart}${borderPart}:` +
+      `y_align=baseline:x=${x}:y=${baseline}:` +
+      `alpha='${alphaExpr}':enable='between(t,${tStart},${tEnd})'`
+    )
+  })
 }
 
 function buildAtempoChain(speed) {
@@ -778,26 +774,36 @@ export function useFFmpeg() {
         for (const r of resolved) if (r.key !== 'custom') loadPreviewFont(r.key)
         try { await document.fonts.ready } catch { /* best-effort */ }
 
-        // Wrap each caption with the shared layout (same algorithm the preview uses)
-        // and write the line-broken text to its own file, referenced via `textfile=`.
-        // textfile (not inline text=) also keeps special chars from breaking the -vf
-        // chain. Lines are joined with '\n'; drawtext renders them as multiple lines.
-        const segTextPaths = []
-        for (let si = 0; si < resolved.length; si++) {
-          const { seg, family } = resolved[si]
-          const wrapped = wrapText(seg.text || '', family, seg.fontSize || 60, seg.boxWidth ?? 80).join('\n')
-          const tname = `text_${si}.txt`
-          // UTF-8 safe base64 (matches the concat-playlist write above).
-          await api.writeFile(p(tname), btoa(unescape(encodeURIComponent(wrapped))))
-          segTextPaths.push(fp(tname))
-        }
-
-        const vfChain = resolved.map(({ seg, key }, si) => {
+        // Per caption: wrap into lines (shared algorithm = same breaks as the
+        // preview), measure the font metrics + line widths the preview's CSS line
+        // box uses, write each line to its own UTF-8 file, and build one
+        // baseline-pinned drawtext per line. textfile= (not inline text=) keeps
+        // special chars from breaking the -vf chain.
+        const measCtx = document.createElement('canvas').getContext('2d')
+        const allDrawtexts = []
+        for (let ci = 0; ci < resolved.length; ci++) {
+          const { seg, key, family } = resolved[ci]
+          const lines = wrapText(seg.text || '', family, seg.fontSize || 60, seg.boxWidth ?? 80)
+          const fontSizeExport = Math.round((seg.fontSize || 60) * (W / 1280))
+          measCtx.font = `${fontSizeExport}px ${family}`
+          const fm = measCtx.measureText('Mg')
+          // fontBoundingBox = the line-box metrics the browser uses; fall back to
+          // rough ratios if the face isn't loaded (export without a prior preview).
+          const fontAsc  = fm.fontBoundingBoxAscent  || fontSizeExport * 0.80
+          const fontDesc = fm.fontBoundingBoxDescent || fontSizeExport * 0.20
+          const lineWidths = lines.map(l => measCtx.measureText(l).width)
+          const lineFiles = []
+          for (let i = 0; i < lines.length; i++) {
+            const tname = `text_${ci}_${i}.txt`
+            await api.writeFile(p(tname), btoa(unescape(encodeURIComponent(lines[i]))))
+            lineFiles.push(fp(tname))
+          }
           const fontPath = (key === 'custom' && fontPathCache['custom'])
             ? fontPathCache['custom']
             : (fontPathCache[key] || fontPathCache['Poppins-Regular'])
-          return buildDrawtext(seg, W, H, fontPath, segTextPaths[si])
-        }).join(',')
+          allDrawtexts.push(...buildCaptionDrawtexts(seg, W, H, fontPath, lineFiles, lineWidths, fontAsc, fontDesc))
+        }
+        const vfChain = allDrawtexts.join(',')
 
         steps.push({
           label: 's3-text',
