@@ -8,6 +8,9 @@
   flex: 1; min-height: 0; width: 100%;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden;
+  /* size container so the screen can size itself to fit BOTH dimensions
+     (min(100cqw, 100cqh * aspect)) — always fits on resize/maximize, no zoom. */
+  container-type: size;
 }
 
 .screen {

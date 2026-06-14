@@ -9,7 +9,6 @@ const TRANS_LABELS = { crossfade:'Crossfade', slide_left:'Slide ←', slide_up:'
 // Per-transition "enter" animation played on the incoming clip when the playhead
 // crosses a clip boundary during playback (restores the clip-change flourish).
 const ENTER_ANIM = { crossfade:'enterFade', slide_left:'enterSlideLeft', slide_up:'enterSlideUp', zoom_in:'enterZoom', dip_black:'enterDip', none:'' }
-const VIEWPORT_MIN = 30, VIEWPORT_MAX = 100
 
 export default function Preview({
   clips, activeClipId, onSelectClip,
@@ -25,7 +24,6 @@ export default function Preview({
   // Playhead comes from the external store — this is the only subscription that
   // re-renders Preview each frame during playback (App/Timeline body do not).
   const currentTime = usePlayhead()
-  const [viewportSize,  setViewportSize] = useState(100)
   const [draggingSegId, setDraggingSegId]= useState(null)
   const [isMuted,       setIsMuted]      = useState(false)
   const [enterAnim,     setEnterAnim]    = useState('')
@@ -256,7 +254,13 @@ export default function Preview({
   // (enable='between(t,startTime,startTime+duration)'), whether playing or
   // paused. This is what makes the preview match the exported timing exactly.
   const visibleSegs = textSegments.filter(s => t >= s.startTime && t < s.startTime + s.duration)
-  const screenStyle = isVertical ? {height:`${viewportSize}%`,aspectRatio:'9/16'} : {width:`${viewportSize}%`,aspectRatio:'16/9'}
+  // Always fit the largest aspect-correct box into the viewport area (both
+  // dimensions), no zoom control. `cqw/cqh` are the container's width/height
+  // (viewportWrap is a size container); width is capped so the derived height
+  // (width / AR) never exceeds the container. Recomputes on any window resize.
+  const screenStyle = isVertical
+    ? { width: 'min(100cqw, 100cqh * 9 / 16)', aspectRatio: '9 / 16' }
+    : { width: 'min(100cqw, 100cqh * 16 / 9)', aspectRatio: '16 / 9' }
 
   return (
     <div className={styles.wrapper}>
@@ -321,11 +325,6 @@ export default function Preview({
             {isMuted?<VolumeX size={14} strokeWidth={1.5}/>:<Volume2 size={14} strokeWidth={1.5}/>}
           </button>
           <span className={styles.timeLabel}>{fmt(t)} / {fmt(total)}</span>
-        </div>
-        <div className={styles.vpGroup}>
-          <span className={styles.controlLabel}>Viewport</span>
-          <input type="range" min={VIEWPORT_MIN} max={VIEWPORT_MAX} step={5} value={viewportSize} className={styles.vpSlider} onChange={e=>setViewportSize(Number(e.target.value))}/>
-          <span className={styles.zoomLabel}>{viewportSize}%</span>
         </div>
       </div>
     </div>
