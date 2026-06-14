@@ -432,7 +432,7 @@ Three paths:
 
 ### Stage 3 — Text overlays → `output.mp4`
 
-All `drawtext` filters in one `-vf` pass. Font files referenced by real OS paths. Custom fonts written to temp dir before step list is sent. Windows drive letter colons escaped as `C\:/` — see Font path escaping section above.
+All `drawtext` filters in one `-vf` pass. Font files referenced by real OS paths. Custom fonts written to temp dir before step list is sent. Caption **text** is never inlined into the filter string — each caption is written to `text_N.txt` and referenced via `textfile=` with `expansion=none`, so special characters can't break the chain (see Bug History). Windows drive letter colons escaped as `C\:/` — see Font path escaping section above.
 
 Text timing uses `enable='between(t,startTime,startTime+duration)'`. The alpha expression drives fade animation for `animation === 'fade'` (and `'slide'`/`'typewriter'` as fallback — FFmpeg drawtext has no native slide or typewriter effect).
 
@@ -626,6 +626,9 @@ Two bugs worked together: (1) the overlay expression used JS template vars `(W-w
 
 ### Windows text overlay export failure
 FFmpeg's `drawtext` filter uses `:` as its option separator. Windows drive letter colons (`C:/path`) were not escaped, causing the filter parser to split the path at the colon. Fixed by escaping `C:` → `C\:` in `buildDrawtext`.
+
+### Text overlays silently dropped on captions with special characters
+Caption text was inlined as `drawtext=…:text='<escaped>'`. The escape pass ran in the wrong order (`'` → `\'` *before* `\` → `\\`), so an apostrophe became `It\\'s`, whose `'` closed the quote early and produced an invalid `-vf` chain. Because **all** captions share one `-vf` chain, one bad caption made the whole text pass fail → the `s3-text` `fallbackOnFail` copied the video through with **zero overlays**. Reported as "text doesn't show, especially with trimmed clips / a mix of fonts" — really any caption containing `'`, `:`, `,`, `[`, `]`, `%`, or `\`. Fixed by **not inlining text at all**: each caption is written to `text_N.txt` in the temp dir and referenced via drawtext `textfile=` (only the path is escaped, via the same `escPath` used for fonts), plus `expansion=none` so drawtext does no `%{...}` expansion on the file content (a bare `%` like "100%" otherwise throws "Stray %"). Verified with a multi-font, multi-caption smoke test covering all the above characters.
 
 ### Windows build icon error
 `package.json` pointed `win.icon` and `linux.icon` at `public/favicon.svg`. electron-builder's icon converter cannot process SVG. Fixed by generating `public/icon.png` (256×256 RGBA PNG from the SVG) and pointing both targets at it.

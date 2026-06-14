@@ -103,7 +103,7 @@ function buildImageEffectVf(effect, W, H, duration) {
   }
 }
 
-function buildDrawtext(seg, W, H, fontPath) {
+function buildDrawtext(seg, W, H, fontPath, textFilePath) {
   // Scale fontSize from the design base to export canvas width.
   // The Inspector stores fontSize in "preview px" units; export scales to W/1280 reference.
   const fontSize  = Math.round((seg.fontSize || 60) * (W / 1280))
@@ -142,7 +142,6 @@ function buildDrawtext(seg, W, H, fontPath) {
       ? (seg.startTime || 0) + seg.duration
       : 1e9
   const tEnd      = tEndRaw.toFixed(4)
-  const safeText  = (seg.text || '').replace(/'/g,"\\'").replace(/:/g,'\\:').replace(/\\/g,'\\\\').replace(/\[/g,'\\[').replace(/\]/g,'\\]')
 
   // Map seg.animation to an FFmpeg alpha expression.
   // 'fade'       — fade in over first 0.4s, fade out over last 0.4s of the segment window.
@@ -175,19 +174,29 @@ function buildDrawtext(seg, W, H, fontPath) {
   const borderPart = seg.outline
     ? `:borderw=${Math.max(1, Math.round(fontSize * 0.04))}:bordercolor=black`
     : ''
-  // Escape the font path for FFmpeg's drawtext filter syntax.
+  // Escape a real OS path for FFmpeg's drawtext filter syntax.
   // Rules (applied in order):
   //   1. Normalise backslashes to forward slashes (FFmpeg accepts both on Windows)
   //   2. Escape Windows drive-letter colon: C:/... → C\:/...
   //      The colon is FFmpeg's filter option separator; it must be escaped even
   //      inside single-quoted values — quotes do NOT protect colons here.
   //   3. Escape any single quotes in the path itself
-  const escapedPath = fontPath
+  const escPath = (pth) => pth
     .replace(/\\/g, '/')          // backslash → forward slash
     .replace(/^([A-Za-z]):/, '$1\\:')  // C: → C\:  (drive letter only)
     .replace(/'/g, "\\'")         // escape single quotes
+  // The caption text is supplied via `textfile=` (a real file written to the temp
+  // dir), NOT inlined as `text='…'`. This sidesteps the whole class of two-level
+  // filtergraph escaping bugs for the text content itself — apostrophes, colons,
+  // commas, brackets, % — which previously broke the *entire* -vf chain (one bad
+  // caption dropped ALL overlays via the s3 fallback). Only the file path needs
+  // escaping now, handled by escPath() exactly like the font path.
+  // expansion=none makes the loaded text fully literal — drawtext otherwise runs
+  // %{...} text-expansion on the textfile content, so a bare '%' (e.g. "100%")
+  // throws "Stray %" and fails the whole pass. With expansion=none every byte of
+  // the caption is drawn verbatim.
   return (
-    `drawtext=fontfile='${escapedPath}':text='${safeText}':` +
+    `drawtext=fontfile='${escPath(fontPath)}':textfile='${escPath(textFilePath)}':expansion=none:` +
     `fontsize=${fontSize}:fontcolor=${color}${shadowPart}${borderPart}:x=${x}:y=${y}:` +
     `alpha='${alphaExpr}':enable='between(t,${tStart},${tEnd})'`
   )
@@ -725,12 +734,24 @@ export function useFFmpeg() {
           }
         }
 
-        const vfChain = activeSegs.map(seg => {
+        // Write each caption's text to its own file and reference it via
+        // drawtext `textfile=`. This avoids inlining text into the filter string,
+        // so special characters in captions (apostrophes, colons, commas, …) can
+        // never break the -vf chain and silently drop every overlay.
+        const segTextPaths = []
+        for (let si = 0; si < activeSegs.length; si++) {
+          const tname = `text_${si}.txt`
+          // UTF-8 safe base64 (matches the concat-playlist write above).
+          await api.writeFile(p(tname), btoa(unescape(encodeURIComponent(activeSegs[si].text || ''))))
+          segTextPaths.push(fp(tname))
+        }
+
+        const vfChain = activeSegs.map((seg, si) => {
           const key      = seg.fontFile || 'Poppins-Regular'
           const fontPath = (key === 'custom' && fontPathCache['custom'])
             ? fontPathCache['custom']
             : (fontPathCache[key] || fontPathCache['Poppins-Regular'])
-          return buildDrawtext(seg, W, H, fontPath)
+          return buildDrawtext(seg, W, H, fontPath, segTextPaths[si])
         }).join(',')
 
         steps.push({
