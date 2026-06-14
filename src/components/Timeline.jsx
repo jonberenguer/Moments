@@ -1,12 +1,19 @@
-import { useRef, useState, useCallback, useMemo } from 'react'
-import { X, Plus, Type } from 'lucide-react'
+import { useRef, useState, useCallback, useMemo, useEffect } from 'react'
+import { X, Plus, Type, Music, ZoomIn, ZoomOut } from 'lucide-react'
 import { playhead, usePlayhead } from '../playhead'
+import useAudioPeaks from '../hooks/useAudioPeaks'
 import styles from './Timeline.module.css'
 
 const TRANSITIONS = ['none','crossfade','slide_left','slide_up','zoom_in','dip_black']
 const TRANS_ICONS  = { none:'✕', crossfade:'⟷', slide_left:'←', slide_up:'↑', zoom_in:'⊕', dip_black:'●' }
 const TRANS_LABELS = { none:'Cut', crossfade:'Crossfade', slide_left:'Slide ←', slide_up:'Slide ↑', zoom_in:'Zoom', dip_black:'Dip' }
-const PX_PER_SEC   = 16
+// Base pixels-per-second at zoom 1.0. The timeline zoom multiplies this; every
+// pixel position flows from buildMetrics, so a single factor scales the whole
+// timeline (clips, ruler, captions, waveform, playhead) coherently.
+const PX_PER_SEC_BASE = 16
+const ZOOM_MIN = 0.25
+const ZOOM_MAX = 8
+const MUSIC_ROW_H = 30   // height of the music waveform lane
 
 // Effective horizontal advance of a transition pill in the flex row
 // (22px wide with margin: 0 -2px → ~18px of layout advance). Used to keep the
@@ -38,11 +45,11 @@ function assignLanes(textSegments) {
 // clip's pixel width is max(64, len*PX) and a transition pill adds PILL_ADVANCE
 // between clips (pills carry no time). Pixel positions are measured from the
 // content origin (0); callers add TRACK_PAD where their container is padded.
-function buildMetrics(clips, lenAt) {
+function buildMetrics(clips, lenAt, pxPerSec) {
   let accT = 0, px = 0
   const segs = clips.map((c, i) => {
     const len = Math.max(0.1, lenAt(i))
-    const w   = Math.max(64, len * PX_PER_SEC)
+    const w   = Math.max(64, len * pxPerSec)
     const seg = { id: c.id, startT: accT, len, leftPx: px, w }
     accT += len
     px   += w + (i < clips.length - 1 ? PILL_ADVANCE : 0)
@@ -169,6 +176,73 @@ function ClipRow({ clips, activeClipId, onSelectClip, onReorder, onRemoveClip, g
   )
 }
 
+// ── MusicTrack ──────────────────────────────────────────────────────────────
+// Renders the background music's *trimmed* waveform on its own lane, aligned to
+// the same time↔px metrics as the clip row. Background music starts at timeline
+// t=0 and the export mixes only [trimStart, trimEnd] (amix duration=first cuts
+// it to the video length), so we draw that slice from x=0 across its mapped
+// width. Display-only: trim is still set via the Inspector's MusicTrimBar.
+function MusicTrack({ musicFile, musicNeedsRelink, peaks, peakDuration, trimStart = 0, trimEnd, metrics, axisDur, onScrub, registerScroll, onScroll }) {
+  const canvasRef = useRef(null)
+  const wrapRef   = useRef(null)
+  const setScrollEl = (el) => { wrapRef.current = el; registerScroll?.(el) }
+
+  // The music's audible duration after trim, clamped to what the export keeps.
+  const dur = peakDuration || 0
+  const tEnd = (typeof trimEnd === 'number' ? trimEnd : dur)
+  const segDur = Math.max(0, Math.min(tEnd, dur) - trimStart)
+  const spanT  = Math.min(segDur, axisDur || segDur)        // cut to video length
+  const widthPx = Math.max(metrics.contentPx, 1)
+  const segPx   = timeToPx(spanT, metrics)
+
+  useEffect(() => {
+    const cv = canvasRef.current
+    if (!cv) return
+    const dpr = window.devicePixelRatio || 1
+    const cssH = MUSIC_ROW_H - 8
+    cv.width  = Math.max(1, Math.round(widthPx * dpr))
+    cv.height = Math.max(1, Math.round(cssH * dpr))
+    const ctx = cv.getContext('2d')
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.clearRect(0, 0, widthPx, cssH)
+    if (!peaks || segDur <= 0 || segPx <= 0) return
+
+    const mid = cssH / 2
+    const amp = mid - 1
+    const { mins, maxs, buckets } = peaks
+    // Map a pixel column → the bucket range covering its time span [t0,t1],
+    // measured from trimStart. Aggregating buckets avoids aliasing when zoomed
+    // out; a single bucket is sampled when zoomed in.
+    ctx.fillStyle = 'rgba(232,201,106,0.55)'
+    const cols = Math.ceil(segPx)
+    for (let x = 0; x < cols; x++) {
+      const t0 = trimStart + (x / segPx) * spanT
+      const t1 = trimStart + ((x + 1) / segPx) * spanT
+      let b0 = Math.floor((t0 / dur) * buckets)
+      let b1 = Math.ceil((t1 / dur) * buckets)
+      b0 = Math.max(0, Math.min(buckets - 1, b0))
+      b1 = Math.max(b0 + 1, Math.min(buckets, b1))
+      let mn = 1, mx = -1
+      for (let b = b0; b < b1; b++) { if (mins[b] < mn) mn = mins[b]; if (maxs[b] > mx) mx = maxs[b] }
+      if (mn > mx) { mn = 0; mx = 0 }
+      const yTop = mid - mx * amp
+      const h = Math.max(1, (mx - mn) * amp)
+      ctx.fillRect(x, yTop, 1, h)
+    }
+  }, [peaks, widthPx, segPx, spanT, segDur, dur, trimStart])
+
+  return (
+    <div className={styles.musicTrack} ref={setScrollEl} onScroll={onScroll} title="Background music waveform (trimmed)">
+      <div className={styles.musicTrackInner} style={{ width: `${widthPx}px` }} onMouseDown={onScrub}>
+        <canvas ref={canvasRef} className={styles.musicCanvas} style={{ width: `${widthPx}px`, height: `${MUSIC_ROW_H - 8}px` }} />
+        <TimelinePlayhead metrics={metrics} axisDur={axisDur} className={styles.playhead} />
+        {!peaks && musicFile && <span className={styles.musicTrackHint}>Decoding waveform…</span>}
+        {musicNeedsRelink && <span className={styles.musicTrackHint}>Re-link music to show waveform</span>}
+      </div>
+    </div>
+  )
+}
+
 // ── Main Timeline ─────────────────────────────────────────────────────────────
 export default function Timeline({
   clips, activeClipId, onSelectClip, onReorder, onRemoveClip,
@@ -177,26 +251,34 @@ export default function Timeline({
   onSeek,
   textSegments, onAddTextSegment, onSelectTextSegment, onUpdateTextSegment, onRemoveTextSegment, activeTextSegmentId,
   onDropMediaToMain,
+  musicFile, musicNeedsRelink, musicDuration, musicTrimStart=0, musicTrimEnd=null,
 }) {
   const axisDur   = timelineDuration || totalDuration
   const lenAt     = (i) => (timeline[i] ? timeline[i].len : Math.max(0.1, clipPlayLen?.(clips[i]) ?? 4))
+  const [zoom, setZoom] = useState(1)
+  const pxPerSec  = PX_PER_SEC_BASE * zoom
   // One shared coordinate system for the clip row and the text track.
-  const metrics   = useMemo(() => buildMetrics(clips, lenAt), [clips, timeline]) // eslint-disable-line react-hooks/exhaustive-deps
+  const metrics   = useMemo(() => buildMetrics(clips, lenAt, pxPerSec), [clips, timeline, pxPerSec]) // eslint-disable-line react-hooks/exhaustive-deps
   const lanes     = useMemo(() => assignLanes(textSegments), [textSegments])
   const segDragRef = useRef(null)
   const [mainDropOver, setMainDropOver] = useState(false)
+
+  // Decode the background music to a waveform once per file (renderer-only).
+  const { peaks, duration: peakDur } = useAudioPeaks(musicFile)
+  const musicLane = !!musicFile || !!musicNeedsRelink
 
   // Keep the ruler, clip row and text track scrolled together so their
   // playheads and the clip↔caption columns stay vertically aligned on screen.
   const rulerScrollRef = useRef(null)
   const clipScrollRef  = useRef(null)
   const textScrollRef  = useRef(null)
+  const musicScrollRef = useRef(null)
   const syncingRef     = useRef(false)
   const onAnyScroll = useCallback((e) => {
     if (syncingRef.current) return
     const src = e.currentTarget, left = src.scrollLeft
     syncingRef.current = true
-    for (const ref of [rulerScrollRef, clipScrollRef, textScrollRef]) {
+    for (const ref of [rulerScrollRef, clipScrollRef, textScrollRef, musicScrollRef]) {
       const el = ref.current
       if (el && el !== src && el.scrollLeft !== left) el.scrollLeft = left
     }
@@ -205,9 +287,9 @@ export default function Timeline({
 
   // Ruler tick marks — aim for ~72px between labels, snapped to a nice step.
   const tickStep = useMemo(() => {
-    const target = 72 / PX_PER_SEC
+    const target = 72 / pxPerSec
     return [1, 2, 5, 10, 15, 30, 60, 120, 300].find(n => n >= target) || 300
-  }, [])
+  }, [pxPerSec])
   const ticks = useMemo(() => {
     const out = []
     for (let t = 0; t <= axisDur + 1e-6; t += tickStep) out.push(t)
@@ -231,6 +313,24 @@ export default function Timeline({
     const m = Math.floor(s / 60)
     return `${m}:${Math.floor(s % 60).toString().padStart(2, '0')}`
   }
+
+  const clampZoom = (z) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z))
+  const zoomBy = useCallback((factor) => setZoom(z => clampZoom(z * factor)), [])
+  // Ctrl/Cmd + wheel zooms (the familiar NLE gesture); plain wheel scrolls.
+  // React registers onWheel as passive, so attach a native non-passive listener
+  // to allow preventDefault and stop the page/track from scrolling while zooming.
+  const containerRef = useRef(null)
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const handler = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      e.preventDefault()
+      setZoom(z => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z * (e.deltaY < 0 ? 1.12 : 1 / 1.12))))
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [])
 
   const handleSegMouseDown = useCallback((e, seg) => {
     e.stopPropagation()
@@ -257,7 +357,7 @@ export default function Timeline({
   }, [onDropMediaToMain])
 
   return (
-    <div className={styles.container} data-timeline>
+    <div className={styles.container} data-timeline ref={containerRef}>
       <div className={styles.stickyTop}>
       <div className={styles.header}>
         <span className={styles.label}>Timeline</span>
@@ -269,7 +369,13 @@ export default function Timeline({
           </div>
         )}
         <div className={styles.headerActions}>
-          <span className={styles.hint}>Drag clips to reorder · drag track to pan</span>
+          <span className={styles.hint}>Drag clips to reorder · drag track to pan · ⌘/Ctrl+scroll to zoom</span>
+          <div className={styles.zoomControls}>
+            <button className={styles.zoomBtn} onClick={() => zoomBy(1/1.5)} disabled={zoom<=ZOOM_MIN} title="Zoom out"><ZoomOut size={12} strokeWidth={1.8}/></button>
+            <input type="range" className={styles.zoomSlider} min={ZOOM_MIN} max={ZOOM_MAX} step={0.05}
+              value={zoom} onChange={e => setZoom(clampZoom(+e.target.value))} title={`Zoom ${zoom.toFixed(2)}×`} />
+            <button className={styles.zoomBtn} onClick={() => zoomBy(1.5)} disabled={zoom>=ZOOM_MAX} title="Zoom in"><ZoomIn size={12} strokeWidth={1.8}/></button>
+          </div>
           <button className={styles.transBtn} onClick={() => { const i=TRANSITIONS.indexOf(globalTransition); onGlobalTransitionChange(TRANSITIONS[(i+1)%TRANSITIONS.length]) }}>
             {TRANS_ICONS[globalTransition]} Global: {TRANS_LABELS[globalTransition]}
           </button>
@@ -305,6 +411,23 @@ export default function Timeline({
         />
         {mainDropOver && <div className={styles.dropHintBanner}>Drop to add to timeline</div>}
       </div>
+
+      {musicLane && (
+        <>
+          <div className={styles.trackSectionHeader}>
+            <Music size={11} strokeWidth={1.5} style={{color:'#7fb5d8',flexShrink:0}}/>
+            <span className={styles.trackSectionLabel} style={{color:'#7fb5d8'}}>Music</span>
+            <span className={styles.musicSectionName}>{musicFile?.name || musicNeedsRelink || ''}</span>
+          </div>
+          <MusicTrack
+            musicFile={musicFile} musicNeedsRelink={musicNeedsRelink}
+            peaks={peaks} peakDuration={peakDur || musicDuration || 0}
+            trimStart={musicTrimStart} trimEnd={musicTrimEnd}
+            metrics={metrics} axisDur={axisDur} onScrub={onScrub}
+            registerScroll={el => { musicScrollRef.current = el }} onScroll={onAnyScroll}
+          />
+        </>
+      )}
 
       <div className={styles.trackSectionHeader}>
         <Type size={11} strokeWidth={1.5} style={{color:'#e8c96a',flexShrink:0}}/>

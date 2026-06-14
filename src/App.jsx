@@ -174,6 +174,11 @@ export default function App() {
             onUpdateTextSegment={store.updateTextSegment}
             activeTextSegmentId={store.activeTextSegment?.id}
             onDropMediaToMain={handleDropMediaToMain}
+            musicFile={store.musicFile}
+            musicNeedsRelink={!store.musicFile ? store.musicFileName : null}
+            musicDuration={store.musicDuration}
+            musicTrimStart={store.musicTrimStart}
+            musicTrimEnd={store.musicTrimEnd}
           />
 
           {showLogs && <LogDrawer logs={ffmpeg.logs} onClose={() => setShowLogs(false)} onClear={ffmpeg.clearLogs} />}
