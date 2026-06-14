@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:24-slim
 
 RUN apt update && apt install -y \
     curl wine wine64 mono-runtime
