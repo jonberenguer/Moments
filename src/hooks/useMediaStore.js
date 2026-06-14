@@ -188,12 +188,20 @@ export function useMediaStore() {
 
   // ── Text segments ─────────────────────────────────────────────────────────
   const addTextSegment = useCallback((startTime=0) => {
-    segCounter.current++
-    const seg = { id:`seg_${segCounter.current}`, text:'Caption', startTime, duration:3, animation:'fade', fontSize:60, color:'#ffffff', opacity:100, shadow:true, outline:false, fontFile:'Poppins-Regular', customFontName:null, position:'custom', posX:50, posY:50, textAlign:'center', boxWidth:80 }
+    // Pick an id that is NOT already in use. The counter alone is unreliable: it is
+    // never bumped when segments arrive from a workflow load or an undo/redo
+    // restore, so a stale counter could mint an id (e.g. seg_1) that already
+    // exists — two segments then share an id, updateTextSegment edits both, and
+    // React key-collides them (the "new caption combines with a previous" bug).
+    let n = segCounter.current + 1
+    const used = new Set(textSegments.map(s => s.id))
+    while (used.has(`seg_${n}`)) n++
+    segCounter.current = n
+    const seg = { id:`seg_${n}`, text:'Caption', startTime, duration:3, animation:'fade', fontSize:60, color:'#ffffff', opacity:100, shadow:true, outline:false, fontFile:'Poppins-Regular', customFontName:null, position:'custom', posX:50, posY:50, textAlign:'center', boxWidth:80 }
     setTextSegments(prev => [...prev, seg])
     setActiveSelection({ type:'text', id:seg.id })
     return seg.id
-  }, [])
+  }, [textSegments])
   const updateTextSegment = useCallback((id, changes) => setTextSegments(prev => prev.map(s => s.id===id?{...s,...changes}:s)), [])
   const removeTextSegment = useCallback((id) => { setTextSegments(prev => prev.filter(s => s.id!==id)); setActiveSelection(prev => prev?.id===id?null:prev) }, [])
   const selectTextSegment = useCallback((id) => setActiveSelection({ type:'text', id }), [])
