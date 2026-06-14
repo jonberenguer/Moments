@@ -392,21 +392,30 @@ export function useMediaStore() {
         onMusicVolumeChange?.(w.musicVolume)
       }
 
-      if (w.clips) setClips(w.clips.map(c => ({
-        ...c,
-        file: null, url: null, _needsMedia: true,
-        viewZoom:       c.viewZoom       ?? 1,
-        viewPanX:       c.viewPanX       ?? 0,
-        viewPanY:       c.viewPanY       ?? 0,
-        rotation:       c.rotation       ?? 0,
-        scale:          c.scale          ?? 1,
-        offsetX:        c.offsetX        ?? 0,
-        offsetY:        c.offsetY        ?? 0,
-        includeAudio:   c.includeAudio   ?? true,
-        blurBackground: c.blurBackground ?? false,
-        imageEffect:    c.imageEffect    ?? null,
-        fileDuration:   c.fileDuration   ?? null,
-      })))
+      if (w.clips) {
+        setClips(w.clips.map(c => ({
+          ...c,
+          file: null, url: null, _needsMedia: true,
+          viewZoom:       c.viewZoom       ?? 1,
+          viewPanX:       c.viewPanX       ?? 0,
+          viewPanY:       c.viewPanY       ?? 0,
+          rotation:       c.rotation       ?? 0,
+          scale:          c.scale          ?? 1,
+          offsetX:        c.offsetX        ?? 0,
+          offsetY:        c.offsetY        ?? 0,
+          includeAudio:   c.includeAudio   ?? true,
+          blurBackground: c.blurBackground ?? false,
+          imageEffect:    c.imageEffect    ?? null,
+          fileDuration:   c.fileDuration   ?? null,
+        })))
+        // Advance idCounter past every loaded `clip_N` id so a subsequent add
+        // can't mint a colliding id (two clips sharing an id makes the Inspector
+        // resolve the wrong clip and React duplicate/break them).
+        for (const c of w.clips) {
+          const m = /^clip_(\d+)$/.exec(c.id || '')
+          if (m) idCounter.current = Math.max(idCounter.current, +m[1])
+        }
+      }
 
       // Decode font table.
       // v10+: customFonts is { hashKey → { name, b64 } }, segments carry _fontKey
