@@ -26,6 +26,8 @@ jobs:
 
       - name: Build Linux AppImage
         run: npm run build:linux
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }} # Securely injects the secret
 
       - uses: actions/upload-artifact@v4
         with:
