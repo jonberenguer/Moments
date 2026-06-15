@@ -57,6 +57,33 @@ npm run dev   # starts Vite on :5173 + Electron
 
 ---
 
+## Current State & Open Work (June 2026)
+
+Progress capture so work-in-progress isn't lost across sessions.
+
+### Branches
+- **`main`** — everything below is committed but **NOT pushed** (origin/main is behind). The CI workflow's `push.branches: [main]` is commented out, so CI builds run only on **`v*` tags** + PRs (not on every push to main).
+- **`electron-40`** — Electron 35 → **40.10.3** upgrade (clears the last `npm audit` advisory → 0 vulns). Parked, **unpushed**, needs **runtime QA** (Windows custom title bar, Linux GNOME/Wayland window + native dialogs, GPU/NVENC detect, full export). Branched *before* the text/transform work, so **rebase onto `main` before merging**.
+
+### Done this session (on `main`)
+- **Security / deps:** vite/electron-builder/wait-on/concurrently bumped + build Node base **20 → 24**; `npm audit` clean (the last item is Electron, fixed on `electron-40`). eslint config renamed to `.mjs`.
+- **Text overlays — major rework:** special-char crashes fixed (`textfile=` + `expansion=none`, one file per line); **CJK languages** (Korean/Chinese/Japanese) via bundled Noto Sans CJK, auto-routed; **wrapping + alignment** (`boxWidth`, `textAlign`) with preview↔export parity (shared `src/textLayout.js`); **vertical placement matched to the preview pixel-for-pixel** via per-line baselines (`buildCaptionDrawtexts`).
+- **Viewport:** removed the zoom slider; **always fit-to-window** (container-query units).
+- **Timeline:** trimmed clips **shrink** (removed the misleading trim overlay).
+- **Clip transform (Phase A):** scale / rotate / move via Inspector sliders, applied in preview + export (incl. blur background), geometry harness-verified. See the Clip transform path in the Export Pipeline section.
+- **Bug fixes:** clip-id collision after workflow load (Inspector showed wrong type + duplicate/broken clips); text-segment id collision; multi-line caption cutoff.
+
+### Open
+- Push `main` (+ the owner's `package.json` version bump **1.0.1 → 1.2.1**, currently uncommitted) when ready.
+- Electron 40 QA + merge.
+- **Phase B:** on-canvas transform gizmo (drag/resize/rotate handles) — Phase A is sliders only.
+- **In-app verification** of the harness-verified changes (caption positioning, clip transform) on the built app.
+
+### Tooling — offscreen-render calibration harness
+For any "does the export match the preview" question, there's a verified method (used to nail caption baselines + transform geometry): render a **replica of the preview CSS** in **headless Chromium** (reusable `calib-chromium` Docker image), render the **FFmpeg export** of the same content, and **pixel-compare** with Python/PIL. The browser/Blink engine matches Electron's, so it's a faithful proxy. Reuse it before changing any preview↔export geometry.
+
+---
+
 ## ⚠️ Project Naming Convention
 
 The application root directory is named `moments-app`. No packaging or zip delivery is required.

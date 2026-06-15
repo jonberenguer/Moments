@@ -24,14 +24,16 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 - Multi-select clips in the media library — checkbox per thumbnail, shift-click range select, spacebar to toggle, drag all selected to timeline at once
 - Arrange clips on a timeline — drag to reorder, drag from library to add
 - Transitions: crossfade, slide, zoom, dip to black, hard cut — per-clip or global
-- Text overlays with font, size, colour, position (top / centre / bottom / custom drag), fade animation, and precise time gating (start + duration)
+- Text overlays with font, size, colour, position (top / centre / bottom / custom drag), alignment (left/centre/right), box width, auto-wrapping, fade animation, and precise time gating (start + duration). Wrapping and placement are matched pixel-for-pixel between the preview and the export.
+- **Multi-language captions** — Korean, Chinese, and Japanese text renders in the export via a bundled CJK font (auto-applied to any caption containing CJK characters)
+- **Clip transform** — resize (scale), rotate, and reposition each clip via Inspector sliders, applied in both preview and export (Phase A; on-canvas drag handles are planned)
 - Background music with trim and volume control
 - Per-clip: brightness, contrast, saturation, speed (video), trim (video), blur background fill, image motion effects (Ken Burns, Pan & Zoom, Parallax, Fade In)
 - End fade to black and audio fade out
 - GPU-accelerated MP4 export (NVENC / AMF / QSV) with CPU fallback
 - Manual encoder selection with re-detection if GPU causes issues
 - NVIDIA NVENC detection over Windows RDP sessions (CUDA hwaccel hint)
-- Workflow save/load (JSON, version 10)
+- Workflow save/load (JSON, version 12)
 - 480p / 720p / 1080p · 16:9 / 9:16
 - Exit button with confirmation dialog (frameless Electron window on Windows)
 
@@ -41,7 +43,7 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 
 | Tool | Version | Notes |
 |---|---|---|
-| Node.js | 20 LTS+ | Required |
+| Node.js | 24 LTS | Required (Node 20 is EOL; CI + Dockerfile use 24) |
 | npm | 10+ | Required |
 | FFmpeg binary | 6.x or 7.x | See setup below — bundled into installer |
 | Wine + libwine | 6+ | Linux only, required for Windows cross-build |
@@ -133,7 +135,7 @@ To produce a full NSIS installer with start menu shortcuts, build natively on a 
 
 A `Dockerfile` is included for building the app from any Linux host without polluting your local environment. The image bundles:
 
-- **Node.js 20** (slim base)
+- **Node.js 24** (slim base)
 - **Wine + Mono** — required for cross-compiling the Windows portable exe from Linux
 - **Electron binary pre-cached** — downloads and caches the Electron zip at image-build time so `npm install` inside the container does not re-download it on every run
 
