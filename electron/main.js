@@ -89,14 +89,26 @@ async function detectGPUCapabilities() {
   async function smokeTest(encoder, extraArgs = []) {
     return new Promise(resolve => {
       const args = [
-        '-f', 'lavfi', '-i', 'color=black:size=64x64:rate=1',
+        // 256×256 — NVENC (Ampere/Ada) rejects very small frames ("Frame
+        // Dimension less than the minimum supported value"), so a 64×64 probe
+        // falsely fails on otherwise-working GPUs. Real exports are ≥854×480.
+        '-f', 'lavfi', '-i', 'color=black:size=256x256:rate=1',
         '-frames:v', '1',
         '-c:v', encoder, ...extraArgs,
         '-y', tmpOut,
       ]
-      const p = spawn(ffmpeg, args, { stdio: 'ignore' })
+      // Capture stderr so a failed probe surfaces *why* (missing encode lib,
+      // driver too old, no NVENC block) instead of silently becoming "no GPU".
+      const p = spawn(ffmpeg, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+      let errBuf = ''
+      p.stderr?.on('data', d => { errBuf += d.toString() })
       const t = setTimeout(() => { p.kill(); resolve(false) }, 10000)
-      p.on('close', code => { clearTimeout(t); try { fs.unlinkSync(tmpOut) } catch {} resolve(code === 0) })
+      p.on('close', code => {
+        clearTimeout(t)
+        try { fs.unlinkSync(tmpOut) } catch {}
+        if (code !== 0) console.warn(`[GPU] smoke test failed for ${encoder} (code ${code}):\n${errBuf.trim().split('\n').slice(-4).join('\n')}`)
+        resolve(code === 0)
+      })
     })
   }
 
