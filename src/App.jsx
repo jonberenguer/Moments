@@ -81,6 +81,10 @@ export default function App() {
         endFadeAudio:       s.endFadeAudio,
         endFadeAudioDuration: s.endFadeAudioDuration,
         quality:            s.quality,
+        exportQuality:      s.exportQuality,
+        exportBitrate:      s.exportBitrate,
+        exportFormat:       (s.exportFormat === 'webm' && !f.gpuCaps?.vp9) || (s.exportFormat === 'gif' && !f.gpuCaps?.gif) ? 'mp4' : s.exportFormat,
+        webmAudioCodec:     f.gpuCaps?.opus ? 'libopus' : f.gpuCaps?.vorbis ? 'libvorbis' : null,
         outputName:         s.momentTitle.replace(/\s+/g, '_') + '.mp4',
         encoderOverride:    ffmpegRef.current.encoderOverride,
       })
@@ -218,7 +222,7 @@ export default function App() {
 
       {showExport && (
         <ExportModal
-          state={exportState} progress={ffmpeg.progress} logs={ffmpeg.logs}
+          state={exportState} progress={ffmpeg.progress} etaSeconds={ffmpeg.etaSeconds} logs={ffmpeg.logs}
           outputUrl={outputUrl} outputName={store.momentTitle.replace(/\s+/g,'_')+'.mp4'}
           quality={store.quality}
           aspectRatio={store.aspectRatio}
@@ -230,6 +234,12 @@ export default function App() {
           currentEncoder={ffmpeg.encoder}
           onCancelExport={ffmpeg.cancelExport}
           onStartExport={handleFFmpegLoad}
+          exportQuality={store.exportQuality}
+          onExportQualityChange={store.setExportQuality}
+          exportBitrate={store.exportBitrate}
+          onExportBitrateChange={store.setExportBitrate}
+          exportFormat={store.exportFormat}
+          onExportFormatChange={store.setExportFormat}
         />
       )}
     </div>

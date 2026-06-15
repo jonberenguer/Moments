@@ -106,6 +106,7 @@
 }
 .progressPct { font-size: 12px; color: var(--text1); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 .progressSub { font-size: 11px; color: var(--text2); }
+.etaLine { font-size: 11px; color: var(--text2); margin: 4px 0 0; font-variant-numeric: tabular-nums; }
 
 .logBox {
   background: var(--bg0); border: 1px solid var(--border);
@@ -148,6 +149,34 @@
   flex-direction: column;
   gap: 12px;
 }
+
+/* ── Encode quality tier ── */
+.tierGroup { display: flex; gap: 6px; }
+.tierBtn {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 6px; border-radius: var(--radius); cursor: pointer;
+  border: 1px solid var(--border-md); background: var(--bg2); color: var(--text1);
+  transition: all .15s;
+}
+.tierBtn:hover:not(:disabled) { border-color: var(--accent-border); background: var(--bg3); }
+.tierBtn:disabled { opacity: .4; cursor: not-allowed; }
+.tierActive { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
+.tierLabel { font-size: 12px; font-weight: 600; }
+.tierSub { font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--text2); }
+.tierActive .tierSub { color: var(--accent); }
+
+.bitrateRow {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12px; color: var(--text1); cursor: pointer;
+}
+.bitrateRow input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
+.bitrateField { display: flex; align-items: center; gap: 4px; margin-left: auto; }
+.bitrateField input {
+  width: 56px; padding: 3px 6px; border-radius: 5px; text-align: right;
+  border: 1px solid var(--border-md); background: var(--bg2); color: var(--text0);
+  font-variant-numeric: tabular-nums;
+}
+.bitrateUnit { font-size: 11px; color: var(--text2); }
 
 .cancelInline {
   display: block;

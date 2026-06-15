@@ -52,6 +52,11 @@ async function detectGPUCapabilities() {
     qsv:    false,  // Intel (iGPU / integrated)
     v4l2m2m: false, // Linux V4L2 M2M (fallback HW)
     cpu:    true,   // always available
+    // Alternative export formats (codec availability in this FFmpeg build)
+    vp9:    false,  // libvpx-vp9 → WebM video
+    opus:   false,  // libopus    → WebM audio (preferred)
+    vorbis: false,  // libvorbis  → WebM audio (fallback)
+    gif:    false,  // gif encoder
   }
 
   const ffmpeg = getFFmpegPath()
@@ -64,6 +69,10 @@ async function detectGPUCapabilities() {
     if (raw.includes('h264_amf'))      result.amf      = true
     if (raw.includes('h264_qsv'))      result.qsv      = true
     if (raw.includes('h264_v4l2m2m')) result.v4l2m2m  = true
+    if (raw.includes('libvpx-vp9'))    result.vp9      = true
+    if (raw.includes('libopus'))       result.opus     = true
+    if (raw.includes('libvorbis'))     result.vorbis   = true
+    if (/(^|\s)gif(\s)/m.test(raw))    result.gif      = true
   } catch {
     // FFmpeg not found or failed — CPU only
   }
@@ -127,21 +136,41 @@ function resolveEncoder(caps, override = 'auto') {
   return                    { encoder: 'libx264',        label: 'CPU (libx264)',    hw: false }
 }
 
-// Encoder-specific quality args. Tuned for a "balanced" online-sharing master:
-// constant-quality ≈ CRF 21 with mid-range presets — far better quality-per-byte
-// than the old speed-first presets (ultrafast / p2 / veryfast), at the cost of
-// some encode time. H.264 high profile + yuv420p keeps it playable everywhere.
-function encoderQualityArgs(encoder) {
+// Encoder-specific quality args. Three tiers map to a constant-quality target
+// (CRF/CQ) + a speed↔efficiency preset; H.264 high profile + yuv420p keeps the
+// output playable everywhere. A custom target bitrate (Mbps), when given,
+// overrides constant-quality with capped VBR (ABR + maxrate/bufsize) so the user
+// can hit a specific size/bitrate. All far better quality-per-byte than the old
+// speed-first presets. `tier` ∈ {high, balanced, small}; `bitrateMbps` null/0 = off.
+function encoderQualityArgs(encoder, tier = 'balanced', bitrateMbps = null) {
+  const CQ        = { high: 18, balanced: 21, small: 26 }[tier] ?? 21
+  const x264Pre   = { high: 'slow', balanced: 'medium', small: 'veryfast' }[tier] || 'medium'
+  const nvPre     = { high: 'p6',   balanced: 'p4',     small: 'p2' }[tier]       || 'p4'
+  const qsvPre    = { high: 'slower', balanced: 'medium', small: 'veryfast' }[tier] || 'medium'
+  const profile   = ['-profile:v', 'high']
+  const br        = (bitrateMbps && bitrateMbps > 0) ? Math.round(bitrateMbps * 1000) : null  // → kbps
+  const maxr      = br ? Math.round(br * 1.45) : null
   switch (encoder) {
-    // NVENC: p4 (medium) + constant-quality cq 22 ≈ x264 crf 21 visually.
-    case 'h264_nvenc':   return ['-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0', '-profile:v', 'high']
-    // AMF: balanced quality. Kept on vbr_latency (constant-QP support varies by
-    // build and can't be smoke-tested here) — quality tier is the safe lever.
-    case 'h264_amf':     return ['-quality', 'balanced', '-rc', 'vbr_latency', '-profile:v', 'high']
-    case 'h264_qsv':     return ['-preset', 'medium', '-global_quality', '22', '-profile:v', 'high']
-    case 'h264_v4l2m2m': return ['-b:v', '6M']   // V4L2 has no CRF; bitrate bump for 1080p headroom
-    // libx264: medium preset + crf 21 — the all-round balanced master.
-    default:             return ['-preset', 'medium', '-crf', '21', '-threads', '0', '-profile:v', 'high']
+    case 'h264_nvenc':
+      return br
+        ? ['-preset', nvPre, '-rc', 'vbr', '-b:v', `${br}k`, '-maxrate', `${maxr}k`, '-bufsize', `${br * 2}k`, ...profile]
+        : ['-preset', nvPre, '-rc', 'vbr', '-cq', String(CQ), '-b:v', '0', ...profile]
+    case 'h264_amf':
+      // constant-QP support varies by AMF build (not smoke-tested here); keep it
+      // on VBR. Quality preset is the safe lever; bitrate uses a peak cap.
+      return br
+        ? ['-quality', 'balanced', '-rc', 'vbr_peak', '-b:v', `${br}k`, '-maxrate', `${maxr}k`, ...profile]
+        : ['-quality', tier === 'small' ? 'speed' : 'balanced', '-rc', 'vbr_latency', ...profile]
+    case 'h264_qsv':
+      return br
+        ? ['-preset', qsvPre, '-b:v', `${br}k`, '-maxrate', `${maxr}k`, ...profile]
+        : ['-preset', qsvPre, '-global_quality', String(CQ), ...profile]
+    case 'h264_v4l2m2m':   // V4L2 has no CRF — bitrate only
+      return ['-b:v', br ? `${br}k` : ({ high: '8M', balanced: '6M', small: '3M' }[tier] || '6M')]
+    default:               // libx264
+      return br
+        ? ['-preset', x264Pre, '-b:v', `${br}k`, '-maxrate', `${maxr}k`, '-bufsize', `${br * 2}k`, '-threads', '0', ...profile]
+        : ['-preset', x264Pre, '-crf', String(CQ), '-threads', '0', ...profile]
   }
 }
 
@@ -336,7 +365,7 @@ ipcMain.handle('shell:openPath', async (_, filePath) => {
 const activeExports = new Map()
 
 ipcMain.handle('ffmpeg:export', async (event, payload) => {
-  const { jobId, steps, encoderOverride, tempDir: reqTempDir } = payload
+  const { jobId, steps, encoderOverride, exportQuality, exportBitrate, tempDir: reqTempDir } = payload
 
   const tempDir = reqTempDir || path.join(os.tmpdir(), `moments_export_${jobId}`)
   fs.mkdirSync(tempDir, { recursive: true })
@@ -348,7 +377,7 @@ ipcMain.handle('ffmpeg:export', async (event, payload) => {
   }
   const caps   = await detectGPUCapabilities()
   const enc    = resolveEncoder(caps, encoderOverride)
-  const encArgs = encoderQualityArgs(enc.encoder)
+  const encArgs = encoderQualityArgs(enc.encoder, exportQuality, exportBitrate)
 
   // On Windows RDP sessions, NVENC may require -hwaccel cuda before inputs.
   // This was detected during the smoke-test and stored as caps.nvencNeedsCuda.

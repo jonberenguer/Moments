@@ -60,6 +60,22 @@ export function useMediaStore() {
   const [quality,         setQualityRaw]     = useState(() => readPref('moments.quality', ['480p','720p','1080p'], '720p'))
   const setAspectRatio = useCallback((v) => { setAspectRatioRaw(v); try { localStorage.setItem('moments.aspectRatio', v) } catch { /* ignore */ } }, [])
   const setQuality     = useCallback((v) => { setQualityRaw(v);     try { localStorage.setItem('moments.quality', v) } catch { /* ignore */ } }, [])
+
+  // Export encode tier + optional custom bitrate (Mbps). Global prefs, persisted
+  // via localStorage (not part of the saved workflow). exportBitrate null = off
+  // (use the tier's constant-quality target); a number overrides with capped VBR.
+  const [exportFormat,    setExportFormatRaw]  = useState(() => readPref('moments.exportFormat', ['mp4','webm','gif'], 'mp4'))
+  const setExportFormat = useCallback((v) => { setExportFormatRaw(v); try { localStorage.setItem('moments.exportFormat', v) } catch { /* ignore */ } }, [])
+  const [exportQuality,   setExportQualityRaw] = useState(() => readPref('moments.exportQuality', ['high','balanced','small'], 'balanced'))
+  const [exportBitrate,   setExportBitrateRaw] = useState(() => {
+    try { const v = parseFloat(localStorage.getItem('moments.exportBitrate')); return v > 0 ? v : null } catch { return null }
+  })
+  const setExportQuality = useCallback((v) => { setExportQualityRaw(v); try { localStorage.setItem('moments.exportQuality', v) } catch { /* ignore */ } }, [])
+  const setExportBitrate = useCallback((v) => {
+    const n = (typeof v === 'number' && v > 0) ? v : null
+    setExportBitrateRaw(n)
+    try { if (n) localStorage.setItem('moments.exportBitrate', String(n)); else localStorage.removeItem('moments.exportBitrate') } catch { /* ignore */ }
+  }, [])
   const [musicVolume,     setMusicVolume]    = useState(70)
 
   const idCounter    = useRef(0)
@@ -558,6 +574,8 @@ export function useMediaStore() {
     setCurrentTime,
     totalDuration, exportDuration, timelineDuration, timeline, clipPlayLen, aspectRatio, setAspectRatio,
     quality, setQuality, musicVolume, setMusicVolume,
+    exportQuality, setExportQuality, exportBitrate, setExportBitrate,
+    exportFormat, setExportFormat,
     getClipTransition,
     saveWorkflow, loadWorkflow,
     undo, redo, canUndo, canRedo,

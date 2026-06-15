@@ -296,6 +296,7 @@ export function useFFmpeg() {
   const [loaded,   setLoaded]   = useState(false)
   const [loading,  setLoading]  = useState(false)
   const [progress, setProgress] = useState(0)
+  const [etaSeconds, setEtaSeconds] = useState(null)
   const [logs,     setLogs]     = useState([])
   const [encoder,  setEncoder]  = useState(null)
   const [gpuCaps,  setGpuCaps]  = useState(null)
@@ -366,12 +367,17 @@ export function useFFmpeg() {
     endFadeAudio       = false,
     endFadeAudioDuration = 1.5,
     outputName         = 'moment.mp4',
+    exportQuality      = 'balanced',
+    exportBitrate      = null,
+    exportFormat       = 'mp4',          // 'mp4' | 'webm' | 'gif'
+    webmAudioCodec     = 'libopus',      // resolved from FFmpeg caps (libopus|libvorbis|null)
     onProgress,
     encoderOverride: encOvr = 'auto',
   }) => {
     if (runningRef.current) throw new Error('Export already in progress')
     runningRef.current = true
     setProgress(0)
+    setEtaSeconds(null)
 
     const jobId = `export_${Date.now()}`
     jobIdRef.current = jobId
@@ -386,6 +392,7 @@ export function useFFmpeg() {
 
     const steps   = []
     const segments = []
+    const clipDurByIndex = {}   // i → clip output seconds, for progress weighting
     const td       = Math.max(0.1, transitionDuration)
     // Per-clip transition duration (after this clip); falls back to the global
     // `td`. Returns 0 when the boundary is a hard cut ('none'). Mirrors the
@@ -395,10 +402,47 @@ export function useFFmpeg() {
       return t === 'none' ? 0 : Math.max(0.1, clip?.transitionDuration ?? td)
     }
 
-    // Subscribe to IPC events for real-time logging
-    const unsubLog     = api.onLog(({ line }) => pushLog(`  ${line}`))
-    const unsubStep    = api.onStepStart(({ label }) => pushLog(`▶ ${label}`))
-    const unsubDone    = api.onStepDone(({ label }) => pushLog(`  ✓ ${label}`))
+    // ── Real progress + ETA ─────────────────────────────────────────────────
+    // Each step carries a `weight` = the seconds of media it processes (clip
+    // output length for Stage-1 encodes, the full timeline for Stage 2/3/4).
+    // FFmpeg prints `time=HH:MM:SS.ms` on stderr (streamed here via onLog), so we
+    // map the current step's time= onto its weight and sum across completed
+    // steps for an accurate overall bar — far better than the old "advance as
+    // steps are *queued*" counter. weightByLabel/totalWeight are filled in once
+    // the step list is built (below), before main starts executing it.
+    const weightByLabel   = {}
+    let   totalWeight     = 0
+    let   completedWeight = 0
+    let   curWeight       = 0
+    const exportStartMs   = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+    const TIME_RE = /time=(\d+):(\d+):(\d+(?:\.\d+)?)/
+    const reportProgress = (within) => {
+      const processed = totalWeight > 0 ? Math.min(totalWeight, completedWeight + within) : 0
+      const pct = totalWeight > 0 ? Math.min(99, Math.round((processed / totalWeight) * 100)) : 0
+      setProgress(pct); onProgress?.(pct)
+      const elapsed = ((typeof performance !== 'undefined' ? performance.now() : Date.now()) - exportStartMs) / 1000
+      if (processed > 0.25 && elapsed > 1.5) {
+        const rate = processed / elapsed                 // weight-seconds per real second
+        setEtaSeconds(rate > 0 ? Math.max(0, (totalWeight - processed) / rate) : null)
+      }
+    }
+
+    // Subscribe to IPC events for real-time logging + progress
+    const unsubLog = api.onLog(({ line }) => {
+      pushLog(`  ${line}`)
+      const m = TIME_RE.exec(line)
+      if (m) reportProgress(Math.min(curWeight, (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3])))
+    })
+    const unsubStep = api.onStepStart(({ label }) => {
+      pushLog(`▶ ${label}`)
+      curWeight = weightByLabel[label] || 0
+    })
+    const unsubDone = api.onStepDone(({ label }) => {
+      pushLog(`  ✓ ${label}`)
+      completedWeight = Math.min(totalWeight, completedWeight + (weightByLabel[label] || 0))
+      curWeight = 0
+      reportProgress(0)
+    })
     const unsubEncoder = api.onEncoderInfo(({ encoder: enc, hw }) => {
       setEncoder(enc)
       pushLog(`Using encoder: ${enc}${hw ? ' 🚀' : ''}`)
@@ -410,14 +454,6 @@ export function useFFmpeg() {
       runningRef.current = false
       loadedRef.current  = true  // keep loaded=true, ready for next export
       api.rmdir(tmpDir).catch(() => {})
-    }
-
-    let stepsDone = 0
-    const tick = (label) => {
-      stepsDone++
-      const pct = Math.min(99, Math.round(stepsDone / Math.max(clips.length + 3, 5) * 100))
-      setProgress(pct); onProgress?.(pct)
-      pushLog(label)
     }
 
     try {
@@ -458,7 +494,7 @@ export function useFFmpeg() {
         pushLog('  music_src written')
       }
 
-      tick(`${validClips.length} clip(s) ready`)
+      pushLog(`${validClips.length} clip(s) ready`)
 
       // ══════════════════════════════════════════════════════════════════
       // STAGE 1 — Encode each clip → normalised seg_N.mp4
@@ -484,6 +520,7 @@ export function useFFmpeg() {
         }
         const durStr  = actualDur.toFixed(4)
         const segFile = `seg_${i}.mp4`
+        clipDurByIndex[i] = actualDur   // progress weighting (Stage-1 steps tagged [i])
 
         pushLog(`\n  ┌─ [${i+1}/${validClips.length}] "${c.name}" — ${c._isImg ? 'IMAGE' : 'VIDEO'} — ${actualDur.toFixed(2)}s`)
 
@@ -743,7 +780,7 @@ export function useFFmpeg() {
           }
         }
 
-        tick(`  ✓ Clip ${i+1}/${validClips.length} queued`)
+        pushLog(`  ✓ Clip ${i+1}/${validClips.length} queued`)
       }
 
       // ══════════════════════════════════════════════════════════════════
@@ -941,20 +978,69 @@ export function useFFmpeg() {
       }
 
       // ══════════════════════════════════════════════════════════════════
-      // STAGE 5 — Web optimize (+faststart)
+      // STAGE 5 — Deliverable format
       // ══════════════════════════════════════════════════════════════════
-      // Move the moov atom to the front so the MP4 plays/streams progressively
-      // online (and uploads start) without downloading the whole file first.
-      // Lossless stream copy — no re-encode, so it costs ~nothing and never
-      // touches quality. This is the delivered file.
-      const outputFile = 'output_web.mp4'
-      steps.push({
-        label: 's5-faststart',
-        args: ['-i', fp(preWebFile), '-c', 'copy', '-movflags', '+faststart', '-y', fp(outputFile)],
-      })
+      // All formats are produced as a final pass off the finished H.264 master
+      // (preWebFile), so the fragile per-clip / transition / text stages are
+      // untouched. MP4 = lossless +faststart remux; WebM = VP9/Opus transcode;
+      // GIF = two-pass palettegen/paletteuse (no audio).
+      let outputFile, deliveredMime, deliveredExt
+      if (exportFormat === 'webm') {
+        outputFile = 'output.webm'; deliveredMime = 'video/webm'; deliveredExt = 'webm'
+        const vp9Crf = ({ high: 24, balanced: 31, small: 40 })[exportQuality] ?? 31
+        const vArgs  = exportBitrate
+          ? ['-b:v', `${Math.round(exportBitrate * 1000)}k`]
+          : ['-crf', String(vp9Crf), '-b:v', '0']
+        const aArgs  = webmAudioCodec ? ['-c:a', webmAudioCodec, '-b:a', '128k'] : ['-an']
+        steps.push({
+          label: 's5-webm',
+          args: ['-i', fp(preWebFile),
+            '-c:v', 'libvpx-vp9', ...vArgs, '-pix_fmt', 'yuv420p', '-row-mt', '1', '-cpu-used', '3',
+            ...aArgs, '-y', fp(outputFile)],
+        })
+      } else if (exportFormat === 'gif') {
+        outputFile = 'output.gif'; deliveredMime = 'image/gif'; deliveredExt = 'gif'
+        const gfps = 15
+        const gw   = Math.min(W, 640)               // cap width — GIFs are huge
+        const filt = `fps=${gfps},scale=${gw}:-1:flags=lanczos`
+        steps.push({ label: 's5-gif-palette', args: ['-i', fp(preWebFile), '-vf', `${filt},palettegen=stats_mode=diff`, '-y', fp('palette.png')] })
+        steps.push({ label: 's5-gif',         args: ['-i', fp(preWebFile), '-i', fp('palette.png'), '-lavfi', `${filt}[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3`, '-y', fp(outputFile)] })
+      } else {
+        // MP4 — move the moov atom to the front (+faststart) so the file plays/
+        // uploads progressively online. Lossless stream copy, no re-encode.
+        outputFile = 'output_web.mp4'; deliveredMime = 'video/mp4'; deliveredExt = 'mp4'
+        steps.push({
+          label: 's5-faststart',
+          args: ['-i', fp(preWebFile), '-c', 'copy', '-movflags', '+faststart', '-y', fp(outputFile)],
+        })
+      }
+
+      // ── Progress weighting ─────────────────────────────────────────────
+      // Tag each step with the media-seconds it processes so the bar advances
+      // proportionally to real encode work. Stage-1 steps carry a `[i]` clip
+      // index → that clip's output seconds (a 2-pass clip is counted per pass,
+      // which is fair — it's two encodes). Full-timeline re-encodes (xfade/music
+      // mix, text, end-fade) weigh the whole timeline; stream-copies are cheap.
+      const encSeconds = Math.max(
+        0.1,
+        segments.reduce((s, x) => s + x.actualDur, 0)
+          - segments.slice(0, -1).reduce((s, x) => s + tdFor(x.clip), 0),
+      )
+      for (const s of steps) {
+        const mIdx = /\[(\d+)\]/.exec(s.label)
+        let w
+        if (mIdx)                              w = clipDurByIndex[+mIdx[1]] || 1
+        else if (/^s2-(music|xfade)/.test(s.label)) w = encSeconds
+        else if (s.label === 's3-text')        w = encSeconds
+        else if (s.label === 's4-fade')        w = encSeconds
+        else if (/^s5-(webm|gif)/.test(s.label)) w = encSeconds   // full-timeline transcode
+        else                                   w = Math.max(1, encSeconds * 0.05)  // concat/copy/faststart
+        weightByLabel[s.label] = w
+        totalWeight += w
+      }
 
       // ── Send all steps to main process for native execution ────────────
-      const result = await api.startExport({ jobId, steps, encoderOverride: encOvr, tempDir: tmpDir })
+      const result = await api.startExport({ jobId, steps, encoderOverride: encOvr, exportQuality, exportBitrate, tempDir: tmpDir })
 
       if (!result.ok) {
         if (result.cancelled) throw new Error('Export cancelled')
@@ -967,13 +1053,17 @@ export function useFFmpeg() {
       const binary  = atob(b64Data)
       const bytes   = new Uint8Array(binary.length)
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-      const blob = new Blob([bytes], { type: 'video/mp4' })
+      const blob = new Blob([bytes], { type: deliveredMime })
 
-      setProgress(100); onProgress?.(100)
+      setProgress(100); onProgress?.(100); setEtaSeconds(null)
       pushLog(`✓ Done — ${(blob.size/1024/1024).toFixed(1)} MB · ${result.encoder}`)
 
-      // Native save-file dialog
-      const savePath = await api.saveFileDialog({ defaultName: outputName })
+      // Native save-file dialog — match the file name + filter to the format.
+      const saveName  = outputName.replace(/\.[^.]+$/, '') + '.' + deliveredExt
+      const saveFilter = exportFormat === 'webm' ? [{ name: 'WebM Video', extensions: ['webm'] }]
+                       : exportFormat === 'gif'  ? [{ name: 'Animated GIF', extensions: ['gif'] }]
+                       :                           [{ name: 'MP4 Video', extensions: ['mp4'] }]
+      const savePath = await api.saveFileDialog({ defaultName: saveName, filters: saveFilter })
       if (savePath) {
         await api.copyFile(p(outputFile), savePath)
         pushLog(`  Saved → ${savePath}`)
@@ -991,7 +1081,7 @@ export function useFFmpeg() {
   }, [pushLog])
 
   return {
-    load, loaded, loading, progress, logs, clearLogs,
+    load, loaded, loading, progress, etaSeconds, logs, clearLogs,
     cancelExport, encoder, gpuCaps, encoderOverride, setEncoderOverride, resetGPU,
     exportMoment,
   }

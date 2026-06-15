@@ -275,26 +275,42 @@ On each export open, the main process runs `ffmpeg -encoders` to check compiled-
 | 4 | `h264_v4l2m2m` | Linux V4L2 |
 | 5 | `libx264` | CPU (always available) |
 
-### Encoder quality args
+### Encoder quality args — `encoderQualityArgs(encoder, tier, bitrateMbps)`
 
-Tuned for a **balanced online-sharing master** — constant-quality ≈ CRF 21 with
-mid-range presets (much better quality-per-byte than the old speed-first presets),
-H.264 **high** profile + `yuv420p` for universal playback. Defined in
-`encoderQualityArgs(encoder)` in `electron/main.js`.
+`electron/main.js`. The **Export modal** exposes three quality tiers; each maps to
+a constant-quality target (CRF/CQ) + a speed↔efficiency preset, H.264 **high**
+profile + `yuv420p` for universal playback. A **custom bitrate** (Mbps), when set,
+overrides constant-quality with capped VBR (ABR + `-maxrate`/`-bufsize`). The tier
++ bitrate ride in the `ffmpeg:export` IPC payload (`exportQuality`, `exportBitrate`)
+and are persisted as global prefs (`moments.exportQuality` / `moments.exportBitrate`),
+not in the workflow.
 
-```js
-h264_nvenc:   ['-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0', '-profile:v', 'high']
-h264_amf:     ['-quality', 'balanced', '-rc', 'vbr_latency', '-profile:v', 'high']
-h264_qsv:     ['-preset', 'medium', '-global_quality', '22', '-profile:v', 'high']
-h264_v4l2m2m: ['-b:v', '6M']   // V4L2 has no CRF — bitrate-based
-libx264:      ['-preset', 'medium', '-crf', '21', '-threads', '0', '-profile:v', 'high']
-```
+| Tier | CRF/CQ | libx264 preset | NVENC preset |
+|---|---|---|---|
+| `high` | 18 | slow | p6 |
+| `balanced` (default) | 21 | medium | p4 |
+| `small` | 26 | veryfast | p2 |
 
-> These are slower than the old `ultrafast`/`p2` presets (esp. CPU `libx264 medium`).
-> Dial the preset faster (`fast`/`veryfast`) if encode time matters more than size.
+> Presets are slower than the old `ultrafast`/`p2` (esp. CPU `high`/`balanced`).
 > The GPU encoder smoke-test in `main.js` uses minimal args, not these — so if a
 > HW path passes detection but rejects a fuller arg here, the encode step fails
 > (no automatic CPU fallback for the main encode). NVENC/libx264 are the tested paths.
+
+### Output formats (Stage 5)
+
+`detectGPUCapabilities()` also reports codec availability (`vp9`/`opus`/`vorbis`/`gif`,
+parsed from `ffmpeg -encoders`). The modal's format picker is gated on these; an
+unavailable persisted format falls back to MP4 at export time. All formats are a
+**final pass off the finished H.264 master** (`preWebFile`), so the fragile
+per-clip/transition/text stages are untouched — see Stage 5.
+
+### Real progress + ETA
+
+`exportMoment` tags each step with a `weight` (media-seconds it processes: clip
+output length for Stage-1 encodes, the whole timeline for xfade/music/text/fade/
+webm/gif passes, ~0 for stream-copies), sums them, then parses FFmpeg's streamed
+`time=` per step (`onLog`) to drive an accurate bar + ETA — replacing the old
+counter that advanced as steps were merely *queued*. ETA surfaces in the modal.
 
 ---
 
@@ -506,13 +522,23 @@ Text timing uses `enable='between(t,startTime,startTime+duration)'`. The alpha e
 
 Applied only when `endFadeVideo` or `endFadeAudio` is true.
 
-### Stage 5 — Web optimize → `output_web.mp4`
+### Stage 5 — Deliverable format
 
-**Always runs.** Stream-copies the Stage 3/4 result with `-movflags +faststart`,
-relocating the `moov` atom to the front so the MP4 plays/streams progressively
-online (and uploads start) without downloading the whole file first. Lossless
-(`-c copy`), no re-encode — costs ~nothing and never affects quality. This
-`output_web.mp4` is the delivered file the renderer reads/saves.
+A final pass off the finished H.264 master (`output.mp4` / `output_final.mp4`),
+selected by `exportFormat`:
+
+- **MP4** (`output_web.mp4`) — stream-copy with `-movflags +faststart` (moov atom
+  to the front → progressive online playback / faster uploads). Lossless, no
+  re-encode.
+- **WebM** (`output.webm`) — `libvpx-vp9` (CRF by tier, or custom bitrate) +
+  `libopus`/`libvorbis` audio (`-an` if neither available). Slower (VP9).
+- **GIF** (`output.gif`) — two-pass `palettegen`/`paletteuse` (lanczos, capped fps
+  15 / width 640). Silent, looping.
+
+The renderer reads/saves whichever `outputFile` the branch produced, with a
+matching blob MIME, file extension, and save-dialog filter. (A double-encode for
+WebM/GIF — H.264 master → VP9/GIF — is the deliberate trade for keeping the
+sensitive pipeline untouched.)
 
 ---
 
