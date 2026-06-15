@@ -65,19 +65,27 @@ Progress capture so work-in-progress isn't lost across sessions.
 - **`main`** — everything below is committed but **NOT pushed** (origin/main is behind). The CI workflow's `push.branches: [main]` is commented out, so CI builds run only on **`v*` tags** + PRs (not on every push to main).
 - **`electron-40`** — Electron 35 → **40.10.3** upgrade (clears the last `npm audit` advisory → 0 vulns). Parked, **unpushed**, needs **runtime QA** (Windows custom title bar, Linux GNOME/Wayland window + native dialogs, GPU/NVENC detect, full export). Branched *before* the text/transform work, so **rebase onto `main` before merging**.
 
-### Done this session (on `main`)
+### Done — export, timeline & preview (latest, on `main`)
+- **Export quality presets + custom bitrate:** `encoderQualityArgs(encoder, tier, bitrateMbps)` — High/Balanced/Small tiers (CRF/CQ + preset per encoder) and an optional custom Mbps target (capped VBR). Picked in the Export modal, persisted as global prefs. See **Encoder quality args**.
+- **Web-ready MP4 + alternative formats:** always-on `+faststart` (moov atom to front); **WebM** (VP9/Opus) and **GIF** (palettegen/paletteuse) as final-stage transcodes off the H.264 master, gated on detected codec availability. See **Output formats (Stage 5)**.
+- **Real export progress + ETA:** work-weighted model driven by FFmpeg's streamed `time=` (replaces the old "advance as steps are queued" counter). See **Real progress + ETA**.
+- **NVENC detection fix:** the GPU smoke test probed a **64×64** frame, which Ampere/Ada NVENC rejects (below min dimension) → false "no GPU". Bumped to **256×256**; probe stderr is now logged (`[GPU] smoke test failed …`). **Verified working on a real NVIDIA box.**
+- **Timeline:** background-music **waveform lane** (trimmed slice, aligned to clips; decoded via `useAudioPeaks`) + **zoom** (0.25×–8×, slider + Ctrl/Cmd-wheel; `PX_PER_SEC_BASE × zoom`).
+- **Preview:** background music now **plays synced to the playhead** (starts at `musicTrimStart`, honors mute + `musicVolume`, stops at `trimEnd`).
+
+### Done — earlier (on `main`)
 - **Security / deps:** vite/electron-builder/wait-on/concurrently bumped + build Node base **20 → 24**; `npm audit` clean (the last item is Electron, fixed on `electron-40`). eslint config renamed to `.mjs`.
 - **Text overlays — major rework:** special-char crashes fixed (`textfile=` + `expansion=none`, one file per line); **CJK languages** (Korean/Chinese/Japanese) via bundled Noto Sans CJK, auto-routed; **wrapping + alignment** (`boxWidth`, `textAlign`) with preview↔export parity (shared `src/textLayout.js`); **vertical placement matched to the preview pixel-for-pixel** via per-line baselines (`buildCaptionDrawtexts`).
 - **Viewport:** removed the zoom slider; **always fit-to-window** (container-query units).
-- **Timeline:** trimmed clips **shrink** (removed the misleading trim overlay).
 - **Clip transform (Phase A):** scale / rotate / move via Inspector sliders, applied in preview + export (incl. blur background), geometry harness-verified. See the Clip transform path in the Export Pipeline section.
-- **Bug fixes:** clip-id collision after workflow load (Inspector showed wrong type + duplicate/broken clips); text-segment id collision; multi-line caption cutoff.
+- **Bug fixes:** trimmed clips **shrink** (removed misleading trim overlay); clip-id collision after workflow load; text-segment id collision; multi-line caption cutoff.
 
 ### Open
-- Push `main` (+ the owner's `package.json` version bump **1.0.1 → 1.2.1**, currently uncommitted) when ready.
+- Push `main` (+ the owner's `package.json` version bump, currently uncommitted) when ready.
 - Electron 40 QA + merge.
 - **Phase B:** on-canvas transform gizmo (drag/resize/rotate handles) — Phase A is sliders only.
 - **In-app verification** of the harness-verified changes (caption positioning, clip transform) on the built app.
+- **Real-hardware check of the non-NVENC tiers/formats:** the smoke test only proves an encoder *opens* with default args — exercise each quality tier + WebM/GIF on QSV/AMF/V4L2 (no auto CPU fallback if a fuller arg is rejected).
 
 ### Tooling — offscreen-render calibration harness
 For any "does the export match the preview" question, there's a verified method (used to nail caption baselines + transform geometry): render a **replica of the preview CSS** in **headless Chromium** (reusable `calib-chromium` Docker image), render the **FFmpeg export** of the same content, and **pixel-compare** with Python/PIL. The browser/Blink engine matches Electron's, so it's a faithful proxy. Reuse it before changing any preview↔export geometry.
@@ -124,15 +132,16 @@ moments-app/
 │   ├── ErrorBoundary.jsx
 │   ├── hooks/
 │   │   ├── useMediaStore.js             # All clip/media/text/music/quality state + workflow save/load
-│   │   └── useFFmpeg.js                 # Native FFmpeg wrapper + full export pipeline (IPC-based)
+│   │   ├── useFFmpeg.js                 # Native FFmpeg wrapper + full export pipeline (IPC-based)
+│   │   └── useAudioPeaks.js             # Decodes music File → min/max peak array (timeline waveform)
 │   └── components/
 │       ├── Topbar.jsx / .module.css     # Quality + aspect ratio selectors; logo opens About modal
 │       ├── AboutModal.jsx / .module.css # About modal — fetches app-info.json at runtime
 │       ├── MediaPanel.jsx / .module.css # Media library with multi-select + native file dialog
-│       ├── Preview.jsx / .module.css    # Viewport preview — defines visual contract
-│       ├── Timeline.jsx / .module.css   # Shows exportDuration chip
+│       ├── Preview.jsx / .module.css    # Viewport preview — defines visual contract; plays music synced to playhead
+│       ├── Timeline.jsx / .module.css   # exportDuration chip; music waveform lane; zoom
 │       ├── Inspector.jsx / .module.css  # Clip/text/music/fade settings (right panel)
-│       ├── ExportModal.jsx / .module.css # Export dialog with GPU selector
+│       ├── ExportModal.jsx / .module.css # Export dialog — format + quality tier + bitrate + GPU selector, progress/ETA
 │       ├── GPUSelector.jsx / .module.css # Encoder selection UI
 │       └── LogDrawer.jsx / .module.css
 ├── scripts/
@@ -263,7 +272,9 @@ Custom font bytes must still be `.slice()`'d when stored into React state to avo
 
 ### Detection
 
-On each export open, the main process runs `ffmpeg -encoders` to check compiled-in HW encoders, then smoke-tests each with a 1-frame encode. Results are cached per session.
+On each export open, the main process runs `ffmpeg -encoders` to check compiled-in HW encoders, then smoke-tests each with a **1-frame 256×256 encode**. Results are cached per session.
+
+> ⚠️ **Probe size matters.** The smoke frame must be **256×256** — Ampere/Ada NVENC rejects frames below its minimum dimension (`InitializeEncoder failed: … Frame Dimension less than the minimum supported value`), so a smaller probe (the old 64×64) falsely fails on perfectly working GPUs and silently drops to CPU. Real exports are ≥854×480, so they were never affected. The probe captures stderr and logs `[GPU] smoke test failed …` (last few FFmpeg lines) on any non-zero exit, so a real failure surfaces its reason instead of vanishing into "no GPU". The log goes to the **main-process stdout** (visible when launched from a terminal), not the in-app Log drawer.
 
 ### Priority
 
@@ -643,7 +654,25 @@ The `+` button and the dropzone click open a native OS file picker via `api.open
 
 ### Background Music Player
 
-When a music file is loaded, the music section renders a full inline audio player with play/pause, seekable progress bar, and time display.
+When a music file is loaded, the music section renders a full inline audio player with play/pause, seekable progress bar, and time display. This is a **standalone auditioning player** — independent of the timeline. The **timeline-synced** music playback lives in `Preview.jsx` (see Preview music playback); both can sound at once if played simultaneously, by design.
+
+---
+
+## Timeline — `Timeline.jsx`
+
+Shares **one time↔pixel coordinate system** (`buildMetrics` → `timeToPx`/`pxToTime`) across the ruler, clip row, music lane and text track, so playheads and columns line up. Lanes scroll in sync.
+
+### Zoom
+`PX_PER_SEC_BASE (16) × zoom`, where `zoom ∈ [0.25, 8]`. Controls: header slider + −/+ buttons, and **Ctrl/Cmd + wheel** (a native non-passive listener — React's `onWheel` is passive, so `preventDefault` wouldn't work). Everything derives from `buildMetrics`, so one factor scales clips, ruler ticks (`tickStep` tracks the zoom), captions, waveform and playhead coherently.
+
+### Music waveform lane
+Shown above the text-overlay row when a music file is present. `useAudioPeaks(file)` decodes the audio once (Web Audio `decodeAudioData` → min/max peak buckets, resolution-independent) — **renderer-only, no bearing on export**. `MusicTrack` draws the **trimmed** slice (`[trimStart, trimEnd]`, clamped to the timeline) on a `<canvas>` from t=0, matching what the export mixes (`atrim → amix=duration=first`). Display-only — trim is still set via the Inspector's MusicTrimBar. A workflow-restored music filename with no bytes shows a "Re-link music" placeholder (no waveform).
+
+---
+
+## Preview music playback — `Preview.jsx`
+
+A hidden `<audio>` rides the same playhead as the video sync, so the preview plays what the export mixes: it starts at `musicTrimStart` (mapped to timeline t=0), follows the play/pause + the preview **mute** button, uses `musicVolume`, and stops at `trimEnd`/timeline end. The trimmed-start seek waits for the element to be seekable (`readyState`/`loadedmetadata`) — a freshly-mounted blob `<audio>` clamps an early `currentTime=`, which would otherwise start playback from 0. Scrub re-syncs only on large jumps so steady playback isn't stuttered.
 
 ---
 

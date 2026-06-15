@@ -22,15 +22,19 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 
 - Import photos and videos via native OS file dialog (remembers last folder) or drag-and-drop
 - Multi-select clips in the media library — checkbox per thumbnail, shift-click range select, spacebar to toggle, drag all selected to timeline at once
-- Arrange clips on a timeline — drag to reorder, drag from library to add
+- Arrange clips on a timeline — drag to reorder, drag from library to add, **zoom 0.25×–8×** (slider / −+ buttons / Ctrl+Cmd-wheel) for precise editing
+- **Music waveform lane** — the trimmed background-music waveform, aligned to the clips on the timeline
 - Transitions: crossfade, slide, zoom, dip to black, hard cut — per-clip or global
 - Text overlays with font, size, colour, position (top / centre / bottom / custom drag), alignment (left/centre/right), box width, auto-wrapping, fade animation, and precise time gating (start + duration). Wrapping and placement are matched pixel-for-pixel between the preview and the export.
 - **Multi-language captions** — Korean, Chinese, and Japanese text renders in the export via a bundled CJK font (auto-applied to any caption containing CJK characters)
 - **Clip transform** — resize (scale), rotate, and reposition each clip via Inspector sliders, applied in both preview and export (Phase A; on-canvas drag handles are planned)
-- Background music with trim and volume control
+- Background music with trim and volume control — **previews in sync with the playhead** (starts at the trim point, honours mute/volume)
 - Per-clip: brightness, contrast, saturation, speed (video), trim (video), blur background fill, image motion effects (Ken Burns, Pan & Zoom, Parallax, Fade In)
 - End fade to black and audio fade out
-- GPU-accelerated MP4 export (NVENC / AMF / QSV) with CPU fallback
+- GPU-accelerated export (NVENC / AMF / QSV) with CPU fallback
+- **Export quality presets** (High / Balanced / Small) + optional **custom bitrate**
+- **Output formats**: MP4 (web-optimised with `+faststart`), **WebM** (VP9/Opus), **GIF** — alternative formats shown only when the bundled FFmpeg supports them
+- **Real progress bar + ETA** during export (driven by FFmpeg's actual encode position)
 - Manual encoder selection with re-detection if GPU causes issues
 - NVIDIA NVENC detection over Windows RDP sessions (CUDA hwaccel hint)
 - Workflow save/load (JSON, version 12)
@@ -205,7 +209,7 @@ The `-v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache` flags fi
 
 ### How it works
 
-When the Export dialog opens, the app runs a quick smoke-test (1-frame encode) for each HW encoder found in the bundled FFmpeg binary. The best passing encoder is selected automatically and shown in the Export dialog.
+When the Export dialog opens, the app runs a quick smoke-test (1-frame **256×256** encode) for each HW encoder found in the bundled FFmpeg binary. The best passing encoder is selected automatically and shown in the Export dialog. (The probe is 256×256 because Ampere/Ada NVENC rejects frames below its minimum dimension — a smaller probe would falsely fail on working GPUs. A failed probe logs `[GPU] smoke test failed …` with the FFmpeg reason on the main-process stdout.)
 
 Users can override the encoder selection before starting export. If a GPU encoder causes issues (driver bugs, codec negotiation failures at specific resolutions), switching to CPU and retrying is always available without closing the dialog.
 
@@ -240,8 +244,9 @@ moments-app/
 │   └── preload.js     Context bridge — safe typed API for renderer
 ├── src/
 │   ├── hooks/
-│   │   ├── useFFmpeg.js      Export pipeline — builds FFmpeg step lists, sends via IPC
-│   │   └── useMediaStore.js  All app state — clips, timeline, settings, workflow
+│   │   ├── useFFmpeg.js      Export pipeline — builds FFmpeg step lists, sends via IPC; progress/ETA
+│   │   ├── useMediaStore.js  All app state — clips, timeline, settings, workflow
+│   │   └── useAudioPeaks.js  Decodes music to a waveform peak array (timeline lane)
 │   └── components/
 │       ├── MediaPanel.jsx    Media library with multi-select, native file dialog
 │       ├── GPUSelector.jsx   Encoder picker shown in Export modal
@@ -287,7 +292,7 @@ moments-app/
 |---|---|
 | Export fails with GPU encoder | Open Export dialog, switch to CPU, retry |
 | "FFmpeg not found" on launch | Run `node scripts/download-ffmpeg.js` or place binary in `bin/` |
-| NVENC not detected (NVIDIA GPU present) | Update to NVIDIA driver 522+. Over RDP the app automatically retries with `-hwaccel cuda`; if still failing, use the GPU Selector to switch to CPU |
+| NVENC not detected (NVIDIA GPU present) | Update to NVIDIA driver 522+. Launch from a terminal and check for `[GPU] smoke test failed …` — it prints the FFmpeg reason. Common causes: missing encode runtime lib (`libnvidia-encode`; note CUDA/AI workloads use a *different* lib), driver too old, or a datacenter GPU with no NVENC block. Over RDP the app auto-retries with `-hwaccel cuda`; otherwise use the GPU Selector to switch to CPU |
 | NVENC fails over Windows RDP | App retries smoke-test with `-hwaccel cuda` automatically. If still failing, switch to CPU in the Export modal GPU Selector |
 | QSV not detected (Intel iGPU present) | Install `intel-media-va-driver-non-free` (Linux) |
 | Windows build fails (NSIS error) | Target is `portable` by default for Linux cross-compile — this is correct. For a full installer, build on a native Windows machine using the `_win_nsis` config in `package.json` |
