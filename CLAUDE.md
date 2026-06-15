@@ -277,13 +277,24 @@ On each export open, the main process runs `ffmpeg -encoders` to check compiled-
 
 ### Encoder quality args
 
+Tuned for a **balanced online-sharing master** — constant-quality ≈ CRF 21 with
+mid-range presets (much better quality-per-byte than the old speed-first presets),
+H.264 **high** profile + `yuv420p` for universal playback. Defined in
+`encoderQualityArgs(encoder)` in `electron/main.js`.
+
 ```js
-h264_nvenc:   ['-preset', 'p2', '-rc', 'vbr', '-cq', '23', '-b:v', '0']
-h264_amf:     ['-quality', 'speed', '-rc', 'vbr_latency']
-h264_qsv:     ['-preset', 'veryfast', '-global_quality', '23']
-h264_v4l2m2m: ['-b:v', '4M']
-libx264:      ['-preset', 'ultrafast', '-threads', '0']
+h264_nvenc:   ['-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0', '-profile:v', 'high']
+h264_amf:     ['-quality', 'balanced', '-rc', 'vbr_latency', '-profile:v', 'high']
+h264_qsv:     ['-preset', 'medium', '-global_quality', '22', '-profile:v', 'high']
+h264_v4l2m2m: ['-b:v', '6M']   // V4L2 has no CRF — bitrate-based
+libx264:      ['-preset', 'medium', '-crf', '21', '-threads', '0', '-profile:v', 'high']
 ```
+
+> These are slower than the old `ultrafast`/`p2` presets (esp. CPU `libx264 medium`).
+> Dial the preset faster (`fast`/`veryfast`) if encode time matters more than size.
+> The GPU encoder smoke-test in `main.js` uses minimal args, not these — so if a
+> HW path passes detection but rejects a fuller arg here, the encode step fails
+> (no automatic CPU fallback for the main encode). NVENC/libx264 are the tested paths.
 
 ---
 
@@ -494,6 +505,14 @@ Text timing uses `enable='between(t,startTime,startTime+duration)'`. The alpha e
 ### Stage 4 — End fade → `output_final.mp4` (optional)
 
 Applied only when `endFadeVideo` or `endFadeAudio` is true.
+
+### Stage 5 — Web optimize → `output_web.mp4`
+
+**Always runs.** Stream-copies the Stage 3/4 result with `-movflags +faststart`,
+relocating the `moov` atom to the front so the MP4 plays/streams progressively
+online (and uploads start) without downloading the whole file first. Lossless
+(`-c copy`), no re-encode — costs ~nothing and never affects quality. This
+`output_web.mp4` is the delivered file the renderer reads/saves.
 
 ---
 

@@ -923,7 +923,7 @@ export function useFFmpeg() {
       // ══════════════════════════════════════════════════════════════════
       // STAGE 4 — End fade
       // ══════════════════════════════════════════════════════════════════
-      const outputFile = endFadeVideo || endFadeAudio ? 'output_final.mp4' : 'output.mp4'
+      const preWebFile = endFadeVideo || endFadeAudio ? 'output_final.mp4' : 'output.mp4'
       if (endFadeVideo || endFadeAudio) {
         const totalEncDur = segments.reduce((s, x) => s + x.actualDur, 0)
           - segments.slice(0, -1).reduce((s, x) => s + tdFor(x.clip), 0)
@@ -936,9 +936,22 @@ export function useFFmpeg() {
         else              fadeArgs.push('-c:v', 'copy')
         if (endFadeAudio) fadeArgs.push('-c:a', 'aac', '-b:a', SEG_AUD_KBPS)
         else              fadeArgs.push('-c:a', 'copy')
-        fadeArgs.push('-y', fp(outputFile))
+        fadeArgs.push('-y', fp(preWebFile))
         steps.push({ label: 's4-fade', args: fadeArgs })
       }
+
+      // ══════════════════════════════════════════════════════════════════
+      // STAGE 5 — Web optimize (+faststart)
+      // ══════════════════════════════════════════════════════════════════
+      // Move the moov atom to the front so the MP4 plays/streams progressively
+      // online (and uploads start) without downloading the whole file first.
+      // Lossless stream copy — no re-encode, so it costs ~nothing and never
+      // touches quality. This is the delivered file.
+      const outputFile = 'output_web.mp4'
+      steps.push({
+        label: 's5-faststart',
+        args: ['-i', fp(preWebFile), '-c', 'copy', '-movflags', '+faststart', '-y', fp(outputFile)],
+      })
 
       // ── Send all steps to main process for native execution ────────────
       const result = await api.startExport({ jobId, steps, encoderOverride: encOvr, tempDir: tmpDir })

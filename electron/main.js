@@ -127,14 +127,21 @@ function resolveEncoder(caps, override = 'auto') {
   return                    { encoder: 'libx264',        label: 'CPU (libx264)',    hw: false }
 }
 
-// Encoder-specific quality args (replaces hardcoded -preset ultrafast)
+// Encoder-specific quality args. Tuned for a "balanced" online-sharing master:
+// constant-quality ≈ CRF 21 with mid-range presets — far better quality-per-byte
+// than the old speed-first presets (ultrafast / p2 / veryfast), at the cost of
+// some encode time. H.264 high profile + yuv420p keeps it playable everywhere.
 function encoderQualityArgs(encoder) {
   switch (encoder) {
-    case 'h264_nvenc':   return ['-preset', 'p2', '-rc', 'vbr', '-cq', '23', '-b:v', '0']
-    case 'h264_amf':     return ['-quality', 'speed', '-rc', 'vbr_latency']
-    case 'h264_qsv':     return ['-preset', 'veryfast', '-global_quality', '23']
-    case 'h264_v4l2m2m': return ['-b:v', '4M']
-    default:             return ['-preset', 'ultrafast', '-threads', '0']   // libx264 — full CPU threads
+    // NVENC: p4 (medium) + constant-quality cq 22 ≈ x264 crf 21 visually.
+    case 'h264_nvenc':   return ['-preset', 'p4', '-rc', 'vbr', '-cq', '22', '-b:v', '0', '-profile:v', 'high']
+    // AMF: balanced quality. Kept on vbr_latency (constant-QP support varies by
+    // build and can't be smoke-tested here) — quality tier is the safe lever.
+    case 'h264_amf':     return ['-quality', 'balanced', '-rc', 'vbr_latency', '-profile:v', 'high']
+    case 'h264_qsv':     return ['-preset', 'medium', '-global_quality', '22', '-profile:v', 'high']
+    case 'h264_v4l2m2m': return ['-b:v', '6M']   // V4L2 has no CRF; bitrate bump for 1080p headroom
+    // libx264: medium preset + crf 21 — the all-round balanced master.
+    default:             return ['-preset', 'medium', '-crf', '21', '-threads', '0', '-profile:v', 'high']
   }
 }
 
