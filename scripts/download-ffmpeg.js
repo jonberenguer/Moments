@@ -59,8 +59,13 @@ const SOURCES = {
     destDir:  path.join(__dirname, '..', 'bin', 'win'),
     destName: 'ffmpeg.exe',
     executable: false,
-    extract: (archivePath, outDir) => execSync(`unzip -o -q "${archivePath}" -d "${outDir}"`, { stdio: 'inherit' }),
-    needs: '`unzip` (apt-get install -y unzip)',
+    // `unzip` on Linux (cross-compile dev / ubuntu CI); fall back to bsdtar's
+    // zip support on the windows-latest runner, which has `tar` but not `unzip`.
+    extract: (archivePath, outDir) => {
+      try { execSync(`unzip -o -q "${archivePath}" -d "${outDir}"`, { stdio: 'inherit' }) }
+      catch { execSync(`tar -xf "${archivePath}" -C "${outDir}"`, { stdio: 'inherit' }) }
+    },
+    needs: '`unzip` (apt-get install -y unzip) or `tar` (bsdtar, default on Windows)',
   },
 }
 

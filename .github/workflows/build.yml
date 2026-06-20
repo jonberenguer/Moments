@@ -22,7 +22,7 @@ jobs:
         run: npm ci
 
       - name: Set up FFmpeg binary
-        run: node scripts/download-ffmpeg.js
+        run: node scripts/download-ffmpeg.js linux
 
       - name: Build Linux AppImage
         run: npm run build:linux
@@ -49,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Set up FFmpeg binary
-        run: node scripts/download-ffmpeg.js
+        run: node scripts/download-ffmpeg.js win
 
       - name: Build Windows portable
         run: npm run build:win
