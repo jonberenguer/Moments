@@ -229,10 +229,13 @@ Video clips without an audio stream must not cause the export to fail. The audio
 
 ### Encoder tokens
 
-The renderer builds FFmpeg argument arrays with two special tokens that main.js resolves at execution time:
+The renderer builds FFmpeg argument arrays with three special tokens that main.js resolves at execution time:
 
 - `__ENCODER__` → replaced with the selected HW encoder string (e.g. `h264_nvenc`, `libx264`)
-- `__ENC_ARGS__` → spread-replaced with the encoder's quality arg array
+- `__ENC_ARGS__` → spread-replaced with the encoder's **user-tier** quality arg array (`encoderQualityArgs`)
+- `__ENC_ARGS_HQ__` → spread-replaced with the encoder's **near-lossless intermediate** arg array (`encoderIntermediateArgs`)
+
+**Single final quality pass (anti-generational-loss):** every Stage 1–4 video encode emits `__ENC_ARGS_HQ__`, so the per-clip → xfade → text → fade re-encodes don't compound lossy generations (the compounding shows up as banding/blocking in xfade transitions — high-entropy dissolve gradients in 8-bit 4:2:0 — even on the "high" tier). After building the step list, the renderer swaps the **last** `__ENC_ARGS_HQ__` in the chain back to `__ENC_ARGS__`, so the user's selected tier is applied exactly **once**, on the final H.264 encode. For **WebM/GIF** the H.264 master stays HQ throughout (no swap) and the user's quality lands on the VP9/GIF transcode (its own CRF). Do not re-add `__ENC_ARGS__` to the intermediate stages — that reintroduces the transition pixelation.
 
 ### `IMAGE_EXTS` must be declared inside `exportMoment()`
 
@@ -319,6 +322,28 @@ not in the workflow.
 > The GPU encoder smoke-test in `main.js` uses minimal args, not these — so if a
 > HW path passes detection but rejects a fuller arg here, the encode step fails
 > (no automatic CPU fallback for the main encode). NVENC/libx264 are the tested paths.
+>
+> **These user-tier args now run on exactly one stage** — the final encode (see
+> Encoder tokens / single final quality pass). Intermediate stages use
+> `encoderIntermediateArgs(encoder)` instead.
+
+### Encoder intermediate args — `encoderIntermediateArgs(encoder)`
+
+`electron/main.js`. Near-lossless args for the Stage 1–4 intermediates so
+generational loss doesn't compound (the cause of pixelated/banded transitions).
+Same flag families as the quality args (cq/global_quality/vbr_peak/crf):
+
+| Encoder | Intermediate args |
+|---|---|
+| `h264_nvenc` | `-preset p5 -rc vbr -cq 16 -b:v 0 -profile:v high` |
+| `h264_amf` | `-quality quality -rc vbr_peak -b:v 40M -maxrate 60M -profile:v high` |
+| `h264_qsv` | `-preset medium -global_quality 16 -profile:v high` |
+| `h264_v4l2m2m` | `-b:v 40M` |
+| `libx264` | `-preset veryfast -crf 15 -threads 0 -profile:v high` |
+
+> Net encode time is usually similar or **faster** than before: only one stage now
+> runs at the (slow) user preset; the rest run `veryfast`/`p5`. Intermediates are
+> temp-only, so their larger size doesn't reach the user.
 
 ### Output formats (Stage 5)
 

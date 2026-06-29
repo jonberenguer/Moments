@@ -186,6 +186,33 @@ function encoderQualityArgs(encoder, tier = 'balanced', bitrateMbps = null) {
   }
 }
 
+// Near-lossless "intermediate" args for the per-clip / transition / text stages.
+// The export re-encodes the whole timeline several times (Stage 1 per clip →
+// Stage 2 xfade → Stage 3 text → Stage 4 fade). Applying the user's lossy tier at
+// every stage compounds generational loss — most visible as banding/blocking in
+// xfade transitions (high-entropy dissolve gradients in 8-bit 4:2:0). So the
+// intermediates encode visually-lossless here and the user's tier is applied
+// exactly ONCE on the final encode (renderer swaps the token on the last stage).
+// Uses the same flag families the smoke-tested quality args use (cq/global_quality/
+// vbr_peak/crf), and is generally *faster* than the old per-stage slow presets
+// since only one stage now runs at the user preset.
+function encoderIntermediateArgs(encoder) {
+  const profile = ['-profile:v', 'high']
+  switch (encoder) {
+    case 'h264_nvenc':
+      return ['-preset', 'p5', '-rc', 'vbr', '-cq', '16', '-b:v', '0', ...profile]
+    case 'h264_amf':
+      // AMF constant-QP support varies by build; a high VBR ceiling is near-lossless.
+      return ['-quality', 'quality', '-rc', 'vbr_peak', '-b:v', '40M', '-maxrate', '60M', ...profile]
+    case 'h264_qsv':
+      return ['-preset', 'medium', '-global_quality', '16', ...profile]
+    case 'h264_v4l2m2m':   // V4L2 has no CRF — high bitrate
+      return ['-b:v', '40M']
+    default:               // libx264
+      return ['-preset', 'veryfast', '-crf', '15', '-threads', '0', ...profile]
+  }
+}
+
 // ─── Window ───────────────────────────────────────────────────────────────────
 let mainWindow
 let forceClose = false   // set true once the user confirms exit
@@ -389,7 +416,8 @@ ipcMain.handle('ffmpeg:export', async (event, payload) => {
   }
   const caps   = await detectGPUCapabilities()
   const enc    = resolveEncoder(caps, encoderOverride)
-  const encArgs = encoderQualityArgs(enc.encoder, exportQuality, exportBitrate)
+  const encArgs   = encoderQualityArgs(enc.encoder, exportQuality, exportBitrate)
+  const encArgsHq = encoderIntermediateArgs(enc.encoder)
 
   // On Windows RDP sessions, NVENC may require -hwaccel cuda before inputs.
   // This was detected during the smoke-test and stored as caps.nvencNeedsCuda.
@@ -473,9 +501,10 @@ ipcMain.handle('ffmpeg:export', async (event, payload) => {
           out.push(...hwaccelInputArgs)
           hwaccelInserted = true
         }
-        if (a === '__ENCODER__')        out.push(enc.encoder)
-        else if (a === '__ENC_ARGS__')  out.push(...encArgs)
-        else                            out.push(a)
+        if (a === '__ENCODER__')           out.push(enc.encoder)
+        else if (a === '__ENC_ARGS__')     out.push(...encArgs)
+        else if (a === '__ENC_ARGS_HQ__')  out.push(...encArgsHq)
+        else                               out.push(a)
       }
       return out
     }

@@ -583,7 +583,7 @@ export function useFFmpeg() {
                 '-filter_complex', blurFc,
                 '-map', '[vout]', '-map', '1:a',
                 '-t', durStr,
-                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
                 '-r', String(SEG_FPS), '-fps_mode', 'cfr',
                 '-video_track_timescale', String(SEG_TIMEBASE),
                 '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
@@ -602,7 +602,7 @@ export function useFFmpeg() {
                   '-vf', effectVf,
                   '-map', '0:v:0', '-map', '0:a:0',
                   '-t', durStr,
-                  '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                  '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
                   '-r', String(SEG_FPS), '-fps_mode', 'cfr',
                   '-video_track_timescale', String(SEG_TIMEBASE),
                   '-c:a', 'copy',
@@ -628,7 +628,7 @@ export function useFFmpeg() {
                 '-filter_complex', fc,
                 '-map', '[vout]', '-map', '1:a:0',
                 '-t', durStr,
-                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
                 '-r', String(SEG_FPS), '-fps_mode', 'cfr',
                 '-video_track_timescale', String(SEG_TIMEBASE),
                 '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
@@ -653,7 +653,7 @@ export function useFFmpeg() {
               '-vf', vfChain,
               '-map', '0:v:0', '-map', '1:a:0',
               '-t', durStr,
-              '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+              '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
               '-r', String(SEG_FPS), '-fps_mode', 'cfr',
               '-video_track_timescale', String(SEG_TIMEBASE),
               '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
@@ -737,7 +737,7 @@ export function useFFmpeg() {
                 '-filter_complex', blurFc,
                 '-map', '[vout]', '-map', '1:a',
                 '-t', durStr,
-                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
                 '-r', String(SEG_FPS), '-fps_mode', 'cfr',
                 '-video_track_timescale', String(SEG_TIMEBASE),
                 '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
@@ -758,7 +758,7 @@ export function useFFmpeg() {
                 '-filter_complex', fc,
                 '-map', '[vout]', '-map', '1:a',
                 '-t', durStr,
-                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
                 '-r', String(SEG_FPS), '-fps_mode', 'cfr',
                 '-video_track_timescale', String(SEG_TIMEBASE),
                 '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
@@ -778,7 +778,7 @@ export function useFFmpeg() {
                 '-vf', vfParts.join(','),
                 '-map', '0:v:0', '-map', '1:a',
                 '-t', durStr,
-                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+                '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
                 '-r', String(SEG_FPS), '-fps_mode', 'cfr',
                 '-video_track_timescale', String(SEG_TIMEBASE),
                 '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-ar', String(SEG_AUD_RATE), '-ac', '2',
@@ -863,7 +863,7 @@ export function useFFmpeg() {
             args: [...segInputs, '-i', fp('music_src'), '-filter_complex',
               [...vParts, ...aParts, `[afinal]volume=1.0[cv];[${N}:a]${musicTrimFilter}volume=${mv}[mv];[cv][mv]amix=inputs=2:duration=first[mixout]`].join(';'),
               '-map', '[vfinal]', '-map', '[mixout]',
-              '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+              '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
               '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-shortest', '-y', fp(preFinal)],
           })
         } else {
@@ -871,7 +871,7 @@ export function useFFmpeg() {
             label: 's2-xfade',
             args: [...segInputs, '-filter_complex', [...vParts, ...aParts].join(';'),
               '-map', '[vfinal]', '-map', '[afinal]',
-              '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+              '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
               '-c:a', 'aac', '-b:a', SEG_AUD_KBPS, '-y', fp(preFinal)],
           })
         }
@@ -960,7 +960,7 @@ export function useFFmpeg() {
           args: [
             '-i', fp(preFinal),
             '-vf', vfChain,
-            '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__',
+            '-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__',
             '-c:a', 'copy', '-y', fp('output.mp4'),
           ],
           // If the bundled FFmpeg lacks the `drawtext` filter (e.g. johnvansickle
@@ -989,7 +989,7 @@ export function useFFmpeg() {
         const fadeArgs = ['-i', fp('output.mp4')]
         if (endFadeVideo) fadeArgs.push('-vf', `fade=t=out:st=${(totalEncDur-vfd).toFixed(4)}:d=${vfd.toFixed(4)}:color=black`)
         if (endFadeAudio) fadeArgs.push('-af', `afade=t=out:st=${(totalEncDur-afd).toFixed(4)}:d=${afd.toFixed(4)}`)
-        if (endFadeVideo) fadeArgs.push('-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS__')
+        if (endFadeVideo) fadeArgs.push('-c:v', '__ENCODER__', '-pix_fmt', SEG_PIX_FMT, '__ENC_ARGS_HQ__')
         else              fadeArgs.push('-c:v', 'copy')
         if (endFadeAudio) fadeArgs.push('-c:a', 'aac', '-b:a', SEG_AUD_KBPS)
         else              fadeArgs.push('-c:a', 'copy')
@@ -1033,6 +1033,22 @@ export function useFFmpeg() {
           label: 's5-faststart',
           args: ['-i', fp(preWebFile), '-c', 'copy', '-movflags', '+faststart', '-y', fp(outputFile)],
         })
+      }
+
+      // ── Single final quality pass ──────────────────────────────────────
+      // All Stage 1–4 video encodes use __ENC_ARGS_HQ__ (near-lossless) so
+      // generational loss doesn't compound across the per-clip → xfade → text →
+      // fade re-encodes (the compounding is what makes transitions look
+      // pixelated/banded even on "high"). The user's selected tier (__ENC_ARGS__)
+      // is applied exactly ONCE, on the LAST H.264 encode in the chain — so the
+      // transition takes lossy compression a single time, like the rest of the
+      // video. For WebM/GIF the H.264 master stays HQ throughout and the user's
+      // quality lands on the VP9/GIF transcode (its own CRF), so we don't swap.
+      if (exportFormat !== 'webm' && exportFormat !== 'gif') {
+        for (let i = steps.length - 1; i >= 0; i--) {
+          const ai = steps[i].args.indexOf('__ENC_ARGS_HQ__')
+          if (ai !== -1) { steps[i].args[ai] = '__ENC_ARGS__'; break }
+        }
       }
 
       // ── Progress weighting ─────────────────────────────────────────────
