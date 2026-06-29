@@ -2,16 +2,18 @@ import { useCallback, useRef, useState, useEffect } from 'react'
 import { Plus, Music, Trash2, Play, Pause, GripVertical, PlusCircle, ListPlus } from 'lucide-react'
 import styles from './MediaPanel.module.css'
 
-// Convert base64 + mime into a File object the existing onAddFiles pipeline accepts
-function base64ToFile(base64, name, mime) {
-  const binary = atob(base64)
-  const bytes  = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return new File([bytes], name, { type: mime })
-}
-
 // Use native Electron dialog when available, fall back to HTML input otherwise
 const api = window.electronAPI
+
+// Resolve dropped / <input>-selected Files to path descriptors when running in
+// Electron (so the bytes never enter the renderer — the large-import fix); fall
+// back to the raw File in a browser/dev environment.
+function filesToEntries(fileList) {
+  return Array.from(fileList).map(f => {
+    const p = api?.pathForFile?.(f)
+    return p ? { name: f.name, path: p, mime: f.type } : f
+  })
+}
 
 export default function MediaPanel({
   mediaLibrary, activeMediaId, onSelectMedia, onAddToTimeline, onRemoveMedia, onAddFiles, onUpdateMediaDuration,
@@ -86,14 +88,12 @@ export default function MediaPanel({
   // ── Native file open (remembers last folder via Electron dialog) ─────────
   const openMediaFiles = useCallback(async () => {
     if (api?.openFilesDialog) {
-      // Electron path — native dialog with remembered directory
+      // Electron path — native dialog returns { name, path, mime, size } path
+      // descriptors (no bytes); the store renders them via media:// and the export
+      // copies from the path.
       const results = await api.openFilesDialog({ accept: 'image/*,video/*' })
       if (!results.length) return
-      const files = results.map(r => base64ToFile(r.base64, r.name, r.mime))
-      // Wrap in a FileList-like object the existing onAddFiles handler accepts
-      const dt = new DataTransfer()
-      files.forEach(f => dt.items.add(f))
-      onAddFiles(dt.files)
+      onAddFiles(results)
     } else {
       // Browser / dev fallback
       fileInputRef.current?.click()
@@ -253,7 +253,7 @@ export default function MediaPanel({
       </button>
 
       <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" style={{ display:'none' }}
-        onChange={e => { onAddFiles(e.target.files); e.target.value='' }} />
+        onChange={e => { onAddFiles(filesToEntries(e.target.files)); e.target.value='' }} />
 
       <div
         className={styles.grid}

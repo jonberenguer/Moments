@@ -2,7 +2,7 @@
  * Moments — Electron Preload
  * Exposes a minimal, typed API surface to the renderer via contextBridge.
  */
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── GPU ──────────────────────────────────────────────────────────────────
@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFileDialog:  (opts)      => ipcRenderer.invoke('dialog:saveFile', opts),
   openFilesDialog: (opts)      => ipcRenderer.invoke('dialog:openFiles', opts),
   openPath:        (p)         => ipcRenderer.invoke('shell:openPath', p),
+  // Resolve a drag-dropped / <input> File to its on-disk path (Electron only; the
+  // renderer can't read File.path under context isolation). Returns null in a
+  // browser or if unavailable → caller falls back to the blob-URL File path.
+  pathForFile:     (file)      => { try { return webUtils.getPathForFile(file) || null } catch { return null } },
 
   // ── Preferences ───────────────────────────────────────────────────────────
   getPrefs:   (key)        => ipcRenderer.invoke('prefs:get', key),
@@ -68,6 +72,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // confirm-and-close: the main process intercepts the window close and asks the
   // renderer (onConfirmClose); the user's choice resolves via forceClose().
   forceClose:     ()   => ipcRenderer.invoke('app:forceClose'),
+  // Ack sent the instant the renderer receives a confirm-close request, so the
+  // main process knows the renderer is alive (not wedged) and stands down its
+  // force-close watchdog.
+  confirmCloseAck: ()  => ipcRenderer.send('app:confirm-close-ack'),
   onConfirmClose: (cb) => {
     const handler = () => cb()
     ipcRenderer.on('app:confirm-close', handler)

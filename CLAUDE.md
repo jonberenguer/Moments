@@ -382,11 +382,33 @@ Renderer (React)
   ├─ fs:rmdir         → recursively removes directory
   ├─ fs:fontPath      → resolves bundled font path (resources/ in production)
   ├─ dialog:saveFile  → shows native OS save dialog
-  ├─ dialog:openFiles → shows native OS open dialog, remembers last folder via prefs
+  ├─ dialog:openFiles → native open dialog; returns { name, path, mime, size } (NO bytes)
   ├─ prefs:get        → reads a key from persistent prefs.json in userData dir
   ├─ prefs:set        → writes a key to persistent prefs.json
   └─ shell:openPath   → opens file in system default app
+
+Plus, exposed on the preload bridge (not ipc handlers):
+  ├─ pathForFile(file)   → webUtils.getPathForFile — OS path of a drag-dropped / <input> File
+  └─ confirmCloseAck()   → renderer-alive ack for the close watchdog (see Window close)
 ```
+
+### `media://` protocol — imported media served off disk
+
+Imported videos/photos are **never read into the renderer as bytes** — that base64
+round-trip OOM'd on large imports (20+ clips). Instead:
+
+- `electron/main.js` registers a privileged `media://` scheme
+  (standard+secure+stream+supportFetchAPI) and a `protocol.handle` that maps
+  `media://m/<encodeURIComponent(absPath)>` → `net.fetch(file://…)`, **forwarding the
+  Range header** so `<video>` seeking works.
+- A library item / clip carries `path` (absolute, Electron) **and** `url` (the
+  `media://…` string the DOM renders). Export copies from `path` (`fs:copyFile` →
+  temp) instead of writing renderer-held bytes. Bytes only enter the renderer in the
+  **browser/dev fallback** (no Electron): there a clip keeps a `File` + `blob:` url
+  and export base64-writes it (`writeFileToPath`).
+- **Music is exempt** — a single file imported via its own `<input>`, kept as a
+  `File` (the waveform decode needs the bytes); it still uses `blob:` + the
+  filename re-link flow.
 
 ---
 
@@ -492,11 +514,13 @@ endFadeAudio:         boolean
 endFadeAudioDuration: number   // 0.5–5s
 ```
 
-### Workflow save/load (version 12)
+### Workflow save/load (version 13)
 
-`saveWorkflow()` serialises to JSON. `loadWorkflow(json)` handles v9 and v10 automatically. Version guard logs a warning for versions > 10 but still attempts load.
+`saveWorkflow()` serialises to JSON. `loadWorkflow(json)` handles older versions automatically. Version guard logs a warning for versions > 13 but still attempts load. Media **bytes are never embedded** (only custom-font bytes are, as a base64 table).
 
-`mediaId` is **not** a stable key. Clips are matched on reload by **filename** (`c.name`).
+**Auto-relink (v13+):** each clip saves its absolute source `path`. On load, an async pass calls `fs:exists` for each path and, where the file still exists, rebuilds the library item (served via `media://`) and links the clip — **no manual re-add**. Where the path is gone (file moved / another machine / browser-saved with no path), the clip stays `_needsMedia` and falls back to filename re-link.
+
+`mediaId` is **not** a stable key. The re-link fallback matches on **filename** (`c.name`). Music is always filename-relink (no path persisted yet — documented follow-up).
 
 ---
 
@@ -697,7 +721,7 @@ Grid of thumbnails. Each thumbnail has a persistent checkbox (dimmed when unchec
 
 ### Native file dialog
 
-The `+` button and the dropzone click open a native OS file picker via `api.openFilesDialog()`. The last used directory is persisted to `prefs.json` and pre-filled on each open. Falls back to `<input type="file">` in non-Electron environments.
+The `+` button opens a native OS file picker via `api.openFilesDialog()`, which returns **path descriptors** (`{ name, path, mime, size }`) — not bytes (see `media://` protocol). The last used directory is persisted to `prefs.json` and pre-filled on each open. The `<input type="file">` fallback (non-Electron) yields browser `File`s; `filesToEntries()` resolves each to a path via `api.pathForFile` when in Electron, else keeps the `File`. `useMediaStore.toMediaSource()` normalizes both into `{ path|file, url }`.
 
 ### Background Music Player
 
@@ -748,7 +772,7 @@ Two independent checkboxes with duration sliders (0.5–5s each): Fade to black 
 
 ```bash
 npm run build:linux   # → dist-electron/*.AppImage
-npm run build:win     # → dist-electron/*-portable.exe
+npm run build:win     # → dist-electron/*Setup*.exe (per-user NSIS installer)
 npm run build:all     # Both
 ```
 
@@ -756,11 +780,37 @@ npm run build:all     # Both
 
 The icon is `public/icon.png` — a 256×256 RGBA PNG. electron-builder converts it to `.ico` (Windows) and the appropriate sizes for AppImage (Linux) automatically. **Do not point the icon config at the SVG** — electron-builder's icon converter cannot process SVG.
 
-### Windows target
+### Windows target — per-user NSIS installer
 
-The default Windows target is `portable` (single standalone `.exe`, no installer, no uninstaller). This is required when cross-compiling from Linux — NSIS uninstaller stub generation fails in that environment.
+The Windows target is **NSIS**, configured as a **per-user** installer:
 
-To produce a full NSIS installer with start menu shortcuts, build on a native Windows machine. The NSIS config is preserved in `package.json` as `_win_nsis` — swap it into `win.target` when building on Windows.
+| `nsis` key | Value | Effect |
+|---|---|---|
+| `perMachine` | `false` | Installs to `%LOCALAPPDATA%\Programs\moments-app` — **no admin / UAC** |
+| `allowElevation` | `false` | Never prompts to elevate; strictly user-level |
+| `oneClick` | `false` | Assisted wizard (with a progress/finish page) |
+| `allowToChangeInstallationDirectory` | `true` | User can pick the folder |
+| `createDesktopShortcut` / `createStartMenuShortcut` | `true` | Shortcuts |
+| `deleteAppDataOnUninstall` | `false` | Preserves `prefs.json` across upgrades/uninstall |
+
+**Upgrade-in-place:** electron-builder keys the installer on the `appId`
+(`com.moments.app`) GUID, so installing a newer build **detects and replaces the
+existing install** rather than going side-by-side — only the updated app remains,
+prefs preserved. (No auto-update yet; that would be a separate electron-updater +
+GitHub Releases piece.)
+
+**Why it must build on Windows:** NSIS uninstaller-stub generation **fails when
+cross-compiling from Linux** — electron-builder has to *execute* a temp uninstaller
+stub (under Wine) to emit `…__uninstaller.exe`, which doesn't run in the Linux/
+container build, so the installer step dies with `File: "…__uninstaller.exe" -> no
+files found`. So the installer is built on the `windows-latest` CI runner (native).
+
+**Local Linux smoke build:** run **`npm run build:win:portable`** — it overrides the
+target to `portable` (`electron-builder --win -c.win.target=portable`, no uninstaller
+step) without touching the shipping NSIS config. (The preserved `_win_portable`
+config block is the equivalent manual swap.) The old `portable` target's slow
+startup — it unpacks the whole app to `%TEMP%` on every launch — is the reason for
+moving to a real installer for distribution.
 
 ### Windows cross-compilation from Linux
 
@@ -782,7 +832,7 @@ apt-get install -y wine wine64 libwine mono-runtime
 ### Settings persistence
 - `aspectRatio` and `quality` persist across sessions via `localStorage` (`moments.aspectRatio` / `moments.quality`), seeded into the store's initial state (no flash, no undo entry). The wrapped `setAspectRatio`/`setQuality` write back on every change — including workflow loads and undo (last-used wins).
 - **Multiple custom fonts** — supported: each distinct upload gets a content-stable `customFontFamily` and its own `font_<family>.ttf` at export; the preview registers each as a separate `@font-face`. (Previously limited to one shared `font_custom.ttf`.)
-- **Media re-matching is filename-only** — on workflow load, clips are matched by filename alone.
+- **Media auto-relink on workflow load (v13+)** — clips save their absolute `path` and re-open from disk automatically; only when the path is gone does it fall back to filename re-matching. Music is still filename-only (no path persisted). See Workflow save/load.
 - **`slide` and `typewriter` text animations** — these are CSS-only effects in the Preview. Both fall back to a fade in/out in the FFmpeg export, since `drawtext` has no native slide or typewriter support. A future approach would be to render text as an overlay video using `lavfi` or a separate compositing pass.
 - **Brightness preview vs export discrepancy** — CSS `filter: brightness()` is multiplicative while FFmpeg `eq=brightness=` is an additive luma offset. The visual result differs at high values. A future fix would switch the export to `curves` or `lutyuv` for a true multiplicative match.
 - **Contrast/saturation scale** — CSS uses `/100` divisor, FFmpeg uses `/50`. Export effect is approximately 2× stronger than the preview at any given slider value.
@@ -818,4 +868,6 @@ Captions in Korean/Chinese rendered fine in the preview but exported as blank/to
 `package.json` pointed `win.icon` and `linux.icon` at `public/favicon.svg`. electron-builder's icon converter cannot process SVG. Fixed by generating `public/icon.png` (256×256 RGBA PNG from the SVG) and pointing both targets at it.
 
 ### Windows build NSIS uninstaller error
-`win.target` was set to `nsis`. NSIS uninstaller stub generation fails when cross-compiling from Linux. Fixed by switching the default target to `portable`. The NSIS config is preserved as `_win_nsis` for native Windows builds.
+`win.target` was set to `nsis`. NSIS uninstaller stub generation fails when cross-compiling from Linux. Originally fixed by switching the default target to `portable`.
+
+> **Superseded (current behavior):** the Windows target is now a **per-user NSIS installer** again — built on the `windows-latest` CI runner (native Windows), where the uninstaller stub generates fine. The cross-compile failure only ever affected *local Linux* builds; the `portable` config is preserved as `_win_portable` for that case. The switch was made because the portable `.exe` unpacks the whole app to `%TEMP%` on every launch (slow startup). See **Windows target — per-user NSIS installer**.

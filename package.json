@@ -17,6 +17,7 @@
     "dev:electron": "wait-on http://localhost:5173 && electron .",
     "build": "vite build",
     "build:win": "npm run build && electron-builder --win",
+    "build:win:portable": "npm run build && electron-builder --win -c.win.target=portable",
     "build:linux": "npm run build && electron-builder --linux",
     "build:all": "npm run build && electron-builder --win --linux",
     "lint": "eslint ."
@@ -74,7 +75,7 @@
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
@@ -96,16 +97,19 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
     }
   },
-  "_win_nsis_note": "To use NSIS installer (native Windows builds only), replace win.target portable with the nsis target below",
-  "_win_nsis": {
+  "_win_target_note": "Windows ships as a per-user NSIS installer (perMachine:false → installs to %LOCALAPPDATA%\\Programs without admin; upgrades the existing install in place via the appId GUID; prefs preserved). NSIS uninstaller-stub generation FAILS when cross-compiling from Linux, so this builds on the windows-latest CI runner (native). For a quick local smoke build on Linux, swap win.target to the preserved _win_portable below.",
+  "_win_portable": {
     "target": [
       {
-        "target": "nsis",
+        "target": "portable",
         "arch": [
           "x64"
         ]
