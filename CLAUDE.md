@@ -145,7 +145,8 @@ moments-app/
 │       ├── GPUSelector.jsx / .module.css # Encoder selection UI
 │       └── LogDrawer.jsx / .module.css
 ├── scripts/
-│   └── download-ffmpeg.js               # Dev setup helper — copies ffmpeg-static to bin/
+│   ├── download-ffmpeg.js               # Dev setup helper — fetches BtbN FFmpeg → bin/
+│   └── download-fonts.js                # Dev setup helper — fetches the CJK preset fonts → public/ffmpeg/fonts/
 ├── bin/
 │   ├── linux/ffmpeg                     # Bundled FFmpeg binary — Linux x64 (git-ignored)
 │   └── win/ffmpeg.exe                   # Bundled FFmpeg binary — Windows x64 (git-ignored)
@@ -262,9 +263,16 @@ validClips.push({ ...c, _fname: fname, ... })
 
 ### Font handling — native paths
 
-Fonts are referenced by real OS paths resolved via `api.fontPath(fontFile)`. There is no WASM FS write step. Custom font data (from `seg.customFontData`) is written to the temp dir as `font_custom.ttf` before the step list is sent to main.
+Fonts are referenced by real OS paths resolved via `api.fontPath(fontFile)`. There is no WASM FS write step. Each **distinct** custom font (from `seg.customFontData`) is written to the temp dir once as `font_<family>.ttf` (keyed by `customFontFamily`) before the step list is sent to main — so captions using different uploaded fonts each get the right face, and a font reused across captions is written once.
 
 Custom font bytes must still be `.slice()`'d when stored into React state to avoid detached ArrayBuffer errors on repeated exports.
+
+### Custom fonts — stable family, reuse, persistence
+
+On upload, the bytes get a **content-stable family** `customFontFamily = MomCustom_<hash>` (`hashFontBytes` in `src/textLayout.js`). This drives everything:
+- **Preview** (`Preview.jsx`): registers **every** caption's custom font once into a module-level `_loadedCustomFonts` cache (a `FontFace` per family, never removed), and `bumpFonts` forces a repaint when a face finishes loading. So an upload shows immediately, a re-upload swaps cleanly (new family), multiple captions can use different custom fonts, and a font is **never dropped** when the caption is deselected or its bytes detach post-export. `famFor` returns the segment's family.
+- **Export**: per-family temp files (above); the measure family is `seg.customFontFamily`.
+- **Workflow**: `saveWorkflow` already stores custom fonts as base64 in a deduped `customFonts` table (keyed by a name+content hash) and preserves `customFontFamily`; `loadWorkflow` restores the bytes and derives `customFontFamily` from them for older workflows. So the same font reused on other captions persists once and re-links on load.
 
 ---
 
@@ -413,11 +421,12 @@ Single custom hook. `App.jsx` calls it once and passes slices down as props — 
   startTime:    number,       // Seconds into the timeline
   duration:     number,       // Length in seconds — export derives endTime as startTime + duration
   animation:    string,       // 'fade' | 'slide' | 'typewriter' — all produce fade in/out in export
-  fontSize:     number,       // Preview px units; scaled to canvas width at export
+  fontSize:     number,       // Preview px units (range 30–400, default 144); scaled to canvas width at export
   color:        string,       // Hex e.g. '#ffffff'
   fontFile:     string,       // Preset key or 'custom'
   customFontName: string | null,
   customFontData: Uint8Array | null,
+  customFontFamily: string | null, // 'MomCustom_<hash>' — content-stable @font-face name (see Custom fonts)
   position:     string,       // 'bottom' | 'top' | 'center' | 'custom'
   posX:         number,       // % (0–100), used when position === 'custom'
   posY:         number,       // % (0–100), used when position === 'custom'
@@ -611,7 +620,7 @@ const XFADE_MAP = {
 
 ## Preset Fonts
 
-All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via `extraResources`. At runtime, **export** resolves them via `api.fontPath(fontFile)` (→ `resources/ffmpeg/fonts/`), and the **preview** registers each one with an injected `@font-face` whose `url()` must be **base-relative** (`import.meta.env.BASE_URL + 'ffmpeg/fonts/…'`) — an absolute `/ffmpeg/fonts/…` path 404s in the packaged `file://` app and silently falls back to sans-serif. Preset order in `PRESET_FONTS` (`useFFmpeg.js`) is the dropdown order.
+All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via `extraResources`. At runtime, **export** resolves them via `api.fontPath(fontFile)` (→ `resources/ffmpeg/fonts/`), and the **preview** registers each one with an injected `@font-face` whose `url()` must be **base-relative** (`import.meta.env.BASE_URL + 'ffmpeg/fonts/…'`) — an absolute `/ffmpeg/fonts/…` path 404s in the packaged `file://` app and silently falls back to sans-serif. Preset order in `PRESET_FONTS` (`useFFmpeg.js`) is the dropdown order. `cjk: true` marks a face that can render CJK (see CJK routing below).
 
 | Key | Label | File | License/Source |
 |---|---|---|---|
@@ -628,9 +637,17 @@ All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via 
 | `LiberationSans-Bold` | Sans Bold | LiberationSans-Bold.ttf | OFL |
 | `LiberationSerif-Regular` | Serif | LiberationSerif-Regular.ttf | OFL |
 | `LiberationMono-Regular` | Mono | LiberationMono-Regular.ttf | OFL |
-| `NotoSansCJKkr-Regular` | CJK (Korean/Chinese/JP) | NotoSansCJKkr-Regular.otf | OFL · Noto |
+| `TaipeiSansTC-Regular` ⟨cjk⟩ | 台北黑體 Taipei Sans | TaipeiSansTCBeta-Regular.ttf | OFL · jtfoundry |
+| `GenSekiGothicTW-Regular` ⟨cjk⟩ | 源石黑體 GenSekiGothic | GenSekiGothicTW-Regular.otf | OFL · ButTaiwan/emtech |
+| `NotoSansJP-Regular` ⟨cjk⟩ | Noto Sans Japanese | NotoSansJP-Regular.otf | OFL · Noto |
+| `NotoSansTC-Regular` ⟨cjk⟩ | Noto Sans Traditional Chinese | NotoSansTC-Regular.otf | OFL · Noto |
+| `NotoSansSC-Regular` ⟨cjk⟩ | Noto Sans Simplified Chinese | NotoSansSC-Regular.otf | OFL · Noto |
+| `NotoSansKR-Regular` ⟨cjk⟩ | Noto Sans Korean | NotoSansKR-Regular.otf | OFL · Noto |
+| `NotoSansCJKkr-Regular` ⟨cjk⟩ | CJK (Korean/Chinese/JP) — fallback | NotoSansCJKkr-Regular.otf | OFL · Noto |
 
-**CJK fallback (`useFFmpeg.js`):** the Latin preset faces above contain no Korean/Chinese/Japanese glyphs, and FFmpeg `drawtext` does **no per-glyph fallback** (one font face per caption), so CJK text would export as `.notdef` tofu boxes / blanks. `hasCJK(text)` (a Unicode-range test) detects such captions and the export routes them to the bundled `NotoSansCJKkr-Regular.otf` (covers Latin + Hangul + Han + kana in one OFL file). This applies to **every** font selection including custom-uploaded fonts (which usually lack CJK glyphs too); pure-Latin captions keep the user's chosen/custom font. The preview mirrors this by appending `'MomNotoCJK'` to the CSS font stack and lazy-loading the font only when a caption contains CJK. **Note:** `.otf`/`.ttc` need the matching `@font-face` `format()` (`opentype`/`collection`) in `loadPreviewFont`, and the `extraResources` filter must include `**/*.otf` or the font won't ship.
+> ⚠️ **The 6 CJK preset files are NOT in the repo** (large; some host-gated). Run `node scripts/download-fonts.js` (fetches the 4 Noto fonts) and place `GenSekiGothicTW-Regular.otf` + `TaipeiSansTCBeta-Regular.ttf` manually (links in the script header). Filenames must match the table. Until present, selecting one of these options renders the fallback / drops that caption's overlay on export; all other fonts are unaffected.
+
+**CJK routing (`useFFmpeg.js`):** Latin-only preset faces contain no Korean/Chinese/Japanese glyphs, and FFmpeg `drawtext` does **no per-glyph fallback** (one face per caption), so CJK text in them would export as `.notdef` tofu / blanks. `hasCJK(text)` (a Unicode-range test) detects such captions; the export routes them to the bundled `NotoSansCJKkr-Regular.otf` **only when the selected font isn't `cjk: true`**. A CJK-capable pick (Noto JP/TC/SC/KR, Taipei Sans, GenSeki) is kept as-is. Custom uploads are treated as non-CJK (usually lack CJK glyphs) → routed to the fallback for CJK text; pure-Latin captions keep the user's chosen/custom font. The preview mirrors this exactly in `famFor` (same routing → same wrap-measure family → preview==export). **Note:** `.otf`/`.ttc` need the matching `@font-face` `format()` (`opentype`/`collection`) in `loadPreviewFont`, and the `extraResources` filter must include `**/*.otf` and `**/*.ttc` or the font won't ship.
 
 ---
 
@@ -734,7 +751,7 @@ apt-get install -y wine wine64 libwine mono-runtime
 
 ### Settings persistence
 - `aspectRatio` and `quality` persist across sessions via `localStorage` (`moments.aspectRatio` / `moments.quality`), seeded into the store's initial state (no flash, no undo entry). The wrapped `setAspectRatio`/`setQuality` write back on every change — including workflow loads and undo (last-used wins).
-- **Multiple custom fonts** — only one custom font at a time (`font_custom.ttf`). Each segment stores its own `customFontData` so data is preserved, but the pipeline would need extending to write per-segment font files.
+- **Multiple custom fonts** — supported: each distinct upload gets a content-stable `customFontFamily` and its own `font_<family>.ttf` at export; the preview registers each as a separate `@font-face`. (Previously limited to one shared `font_custom.ttf`.)
 - **Media re-matching is filename-only** — on workflow load, clips are matched by filename alone.
 - **`slide` and `typewriter` text animations** — these are CSS-only effects in the Preview. Both fall back to a fade in/out in the FFmpeg export, since `drawtext` has no native slide or typewriter support. A future approach would be to render text as an overlay video using `lavfi` or a separate compositing pass.
 - **Brightness preview vs export discrepancy** — CSS `filter: brightness()` is multiplicative while FFmpeg `eq=brightness=` is an additive luma offset. The visual result differs at high values. A future fix would switch the export to `curves` or `lutyuv` for a true multiplicative match.
