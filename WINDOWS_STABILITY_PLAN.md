@@ -1,7 +1,7 @@
 # Windows Stability & Installer — Working Plan
 
 > Branch: **`windows-stability-and-installer`** (off `main` @ `50dc758`)
-> Status: **#1 DONE; #2 and #3 pending.** Created so work can be parked while
+> Status: **#1 and #3 DONE; #2 pending.** Created so work can be parked while
 > addressing an unrelated bug on `main`, then resumed here.
 
 This branch addresses three Windows-package issues raised during UAT. Each
@@ -101,7 +101,29 @@ IPC message-size ceiling → crash. Scales with **import batch size** = the symp
 
 ---
 
-## 3. Portable → per-user installer
+## 3. Portable → per-user installer — ✅ DONE
+
+**Implemented:** Windows target switched from `portable` to a **per-user NSIS**
+installer.
+- `package.json` `build.win.target` → `nsis`; `build.nsis` set to `perMachine:
+  false`, `allowElevation: false`, `oneClick: false`, `allowToChangeInstallation
+  Directory: true`, `createDesktop/StartMenuShortcut: true`, `deleteAppDataOn
+  Uninstall: false`. Old portable config preserved as `_win_portable` (for local
+  Linux smoke builds, since NSIS can't cross-compile from Linux).
+- `.github/workflows/build.yml`: Windows step renamed; still builds on
+  `windows-latest` (native → NSIS works) and the `dist-electron/*.exe` artifact +
+  release globs match the NSIS `Setup .exe`.
+- Docs updated (CLAUDE.md "Windows target", "Building Installers", bug history).
+
+Result: installs to `%LOCALAPPDATA%\Programs` with no admin; a newer build
+upgrades the existing install in place (appId GUID) so only the updated app
+remains, prefs preserved; no per-launch `%TEMP%` unpack → faster startup.
+
+**Verify:** download the CI Windows artifact, install (no UAC prompt), run; then
+install a newer version → it replaces the old one (not side-by-side) and settings
+survive. Optional follow-on: electron-updater auto-update.
+
+<details><summary>Original analysis (for reference)</summary>
 
 ### Why portable feels slow
 electron-builder's `portable` target is a self-extracting exe — **every launch**
@@ -134,6 +156,8 @@ starting point.
 electron-updater + GitHub Releases for true auto-update (background download,
 update-on-restart) — separate, larger piece. The upgrade-overwrite behavior asked
 for comes free with plain NSIS.
+
+</details>
 
 ---
 

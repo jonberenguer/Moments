@@ -723,7 +723,7 @@ Two independent checkboxes with duration sliders (0.5–5s each): Fade to black 
 
 ```bash
 npm run build:linux   # → dist-electron/*.AppImage
-npm run build:win     # → dist-electron/*-portable.exe
+npm run build:win     # → dist-electron/*Setup*.exe (per-user NSIS installer)
 npm run build:all     # Both
 ```
 
@@ -731,11 +731,31 @@ npm run build:all     # Both
 
 The icon is `public/icon.png` — a 256×256 RGBA PNG. electron-builder converts it to `.ico` (Windows) and the appropriate sizes for AppImage (Linux) automatically. **Do not point the icon config at the SVG** — electron-builder's icon converter cannot process SVG.
 
-### Windows target
+### Windows target — per-user NSIS installer
 
-The default Windows target is `portable` (single standalone `.exe`, no installer, no uninstaller). This is required when cross-compiling from Linux — NSIS uninstaller stub generation fails in that environment.
+The Windows target is **NSIS**, configured as a **per-user** installer:
 
-To produce a full NSIS installer with start menu shortcuts, build on a native Windows machine. The NSIS config is preserved in `package.json` as `_win_nsis` — swap it into `win.target` when building on Windows.
+| `nsis` key | Value | Effect |
+|---|---|---|
+| `perMachine` | `false` | Installs to `%LOCALAPPDATA%\Programs\moments-app` — **no admin / UAC** |
+| `allowElevation` | `false` | Never prompts to elevate; strictly user-level |
+| `oneClick` | `false` | Assisted wizard (with a progress/finish page) |
+| `allowToChangeInstallationDirectory` | `true` | User can pick the folder |
+| `createDesktopShortcut` / `createStartMenuShortcut` | `true` | Shortcuts |
+| `deleteAppDataOnUninstall` | `false` | Preserves `prefs.json` across upgrades/uninstall |
+
+**Upgrade-in-place:** electron-builder keys the installer on the `appId`
+(`com.moments.app`) GUID, so installing a newer build **detects and replaces the
+existing install** rather than going side-by-side — only the updated app remains,
+prefs preserved. (No auto-update yet; that would be a separate electron-updater +
+GitHub Releases piece.)
+
+**Why it must build on Windows:** NSIS uninstaller-stub generation **fails when
+cross-compiling from Linux**, so the installer is built on the `windows-latest` CI
+runner (native). For a quick local smoke build on Linux, swap `win.target` to the
+preserved **`_win_portable`** block in `package.json` (self-extracting `.exe`, no
+uninstaller). The old `portable` target's slow startup — it unpacks the whole app
+to `%TEMP%` on every launch — is the reason for moving to a real installer.
 
 ### Windows cross-compilation from Linux
 
@@ -793,4 +813,6 @@ Captions in Korean/Chinese rendered fine in the preview but exported as blank/to
 `package.json` pointed `win.icon` and `linux.icon` at `public/favicon.svg`. electron-builder's icon converter cannot process SVG. Fixed by generating `public/icon.png` (256×256 RGBA PNG from the SVG) and pointing both targets at it.
 
 ### Windows build NSIS uninstaller error
-`win.target` was set to `nsis`. NSIS uninstaller stub generation fails when cross-compiling from Linux. Fixed by switching the default target to `portable`. The NSIS config is preserved as `_win_nsis` for native Windows builds.
+`win.target` was set to `nsis`. NSIS uninstaller stub generation fails when cross-compiling from Linux. Originally fixed by switching the default target to `portable`.
+
+> **Superseded (current behavior):** the Windows target is now a **per-user NSIS installer** again — built on the `windows-latest` CI runner (native Windows), where the uninstaller stub generates fine. The cross-compile failure only ever affected *local Linux* builds; the `portable` config is preserved as `_win_portable` for that case. The switch was made because the portable `.exe` unpacks the whole app to `%TEMP%` on every launch (slow startup). See **Windows target — per-user NSIS installer**.

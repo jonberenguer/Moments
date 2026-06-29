@@ -54,7 +54,7 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 | FFmpeg binary | 6.x or 7.x | See setup below — bundled into installer |
 | Wine + libwine | 6+ | Linux only, required for Windows cross-build |
 
-> **End users do not need to install anything.** FFmpeg is bundled inside the AppImage / portable exe.
+> **End users do not need to install anything.** FFmpeg is bundled inside the AppImage / Windows installer.
 
 ---
 
@@ -139,22 +139,27 @@ Hot reload works for renderer changes. Restart the process for `electron/main.js
 ## Building
 
 ```bash
-npm run build:linux   # → dist-electron/Moments-1.0.0.AppImage
-npm run build:win     # → dist-electron/Moments 1.0.0.exe  (portable, no installer)
+npm run build:linux   # → dist-electron/Moments-<ver>.AppImage
+npm run build:win     # → dist-electron/Moments Setup <ver>.exe  (per-user NSIS installer)
 npm run build:all     # Both
 ```
 
-### Cross-compiling Windows from Linux
+### Windows installer (per-user NSIS)
 
-Install Wine first:
-```bash
-apt-get install -y wine wine64 libwine mono-runtime
-wine --version   # should print wine-6.x or higher
-```
+The Windows output is a **per-user NSIS installer**: it installs to
+`%LOCALAPPDATA%\Programs\moments-app` **without admin rights**, adds Start-menu /
+desktop shortcuts, and **upgrades any existing install in place** (only the
+updated app remains; settings are preserved). It is built on the **`windows-latest`
+GitHub Actions runner** (native Windows) — see `.github/workflows/build.yml`.
 
-Then `npm run build:win` works as normal. The Windows output is a **portable exe** (no NSIS installer) which runs directly without installation — this avoids the NSIS uninstaller stub compilation issue that occurs when cross-compiling from Linux.
-
-To produce a full NSIS installer with start menu shortcuts, build natively on a Windows machine. The NSIS config is preserved in `package.json` as `_win_nsis` — swap it in for the `win.target` when building on Windows.
+> **Building on Linux:** NSIS uninstaller-stub generation fails when
+> cross-compiling from Linux. For a quick local smoke build, swap `win.target` to
+> the preserved **`_win_portable`** block in `package.json` (a self-extracting
+> portable `.exe`, no installer). Wine is still required for that path:
+> ```bash
+> apt-get install -y wine wine64 libwine mono-runtime
+> wine --version   # should print wine-6.x or higher
+> ```
 
 ---
 
@@ -163,7 +168,7 @@ To produce a full NSIS installer with start menu shortcuts, build natively on a 
 A `Dockerfile` is included for building the app from any Linux host without polluting your local environment. The image bundles:
 
 - **Node.js 24** (slim base)
-- **Wine + Mono** — required for cross-compiling the Windows portable exe from Linux
+- **Wine + Mono** — required for the local Windows portable-exe smoke build from Linux (the `_win_portable` target; the shipping NSIS installer builds on the Windows CI runner)
 - **Electron binary pre-cached** — downloads and caches the Electron zip at image-build time so `npm install` inside the container does not re-download it on every run
 
 ### 1 — Build the image

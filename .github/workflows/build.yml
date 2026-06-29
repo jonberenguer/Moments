@@ -51,7 +51,7 @@ jobs:
       - name: Set up FFmpeg binary
         run: node scripts/download-ffmpeg.js win
 
-      - name: Build Windows portable
+      - name: Build Windows installer (per-user NSIS)
         run: npm run build:win
 
       - uses: actions/upload-artifact@v4
