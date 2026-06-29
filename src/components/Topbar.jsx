@@ -38,7 +38,12 @@ export default function Topbar({
   // The main process intercepts the native close (X / Alt+F4) and asks us to
   // confirm — open the same exit dialog the toolbar used to.
   useEffect(() => {
-    return window.electronAPI?.onConfirmClose?.(() => setShowExitConfirm(true))
+    return window.electronAPI?.onConfirmClose?.(() => {
+      // Tell main we're alive so it doesn't force-close us as "wedged", then
+      // open the confirm dialog.
+      window.electronAPI?.confirmCloseAck?.()
+      setShowExitConfirm(true)
+    })
   }, [])
 
   // On Windows/macOS the title bar is hidden, so the toolbar doubles as the

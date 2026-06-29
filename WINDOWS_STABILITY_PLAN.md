@@ -1,16 +1,33 @@
 # Windows Stability & Installer — Working Plan
 
 > Branch: **`windows-stability-and-installer`** (off `main` @ `50dc758`)
-> Status: **planning complete, no code changes yet.** Created so work can be
-> parked while addressing an unrelated bug on `main`, then resumed here.
+> Status: **#1 DONE; #2 and #3 pending.** Created so work can be parked while
+> addressing an unrelated bug on `main`, then resumed here.
 
 This branch addresses three Windows-package issues raised during UAT. Each
 section below has the **traced root cause** (file:line) and **ranked candidate
-fixes**. Nothing has been implemented yet.
+fixes**.
 
 ---
 
-## 1. Windows freeze on close (intermittent)
+## 1. Windows freeze on close (intermittent) — ✅ DONE
+
+**Implemented:** ack-based close watchdog + kill in-flight FFmpeg on every quit path.
+- `electron/main.js`: on intercepted `close`, after sending `app:confirm-close`,
+  start a **4s watchdog**; if the renderer doesn't `app:confirm-close-ack` (proof
+  it's alive) the watchdog sets `forceClose`, calls `killAllExports()`, and
+  `mainWindow.destroy()`. `killAllExports()` cancels each child in `activeExports`
+  — called from the watchdog, the `app:forceClose` handler, and a new
+  `app.on('before-quit')`. Watchdog cleared on ack / forceClose / window `closed`.
+- `electron/preload.js`: new `confirmCloseAck()` → `app:confirm-close-ack`.
+- `src/components/Topbar.jsx`: on `onConfirmClose`, call `confirmCloseAck()` then
+  open the dialog.
+
+**Verify on Windows:** (a) X/Alt+F4 during a heavy op no longer hangs (worst case
+closes after ~4s); (b) closing mid-export leaves no orphaned `ffmpeg.exe`;
+(c) normal Exit/Cancel still work.
+
+<details><summary>Original analysis (for reference)</summary>
 
 ### How close works today
 `electron/main.js:236` + `src/components/Topbar.jsx:195`:
@@ -40,7 +57,9 @@ renderer shows "Exit moments?" dialog → user clicks Exit → `app:forceClose`
 4. Belt-and-suspenders: detached / `taskkill /T` child spawning so children die
    with the parent on Windows.
 
-**Plan:** do **1 + 2** together (cover both freeze modes, low risk).
+**Plan:** do **1 + 2** together (cover both freeze modes, low risk). ✅ Done as above.
+
+</details>
 
 ---
 

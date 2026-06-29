@@ -189,6 +189,22 @@ function encoderQualityArgs(encoder, tier = 'balanced', bitrateMbps = null) {
 // ─── Window ───────────────────────────────────────────────────────────────────
 let mainWindow
 let forceClose = false   // set true once the user confirms exit
+let closeWatchdog = null // timer that force-closes if the renderer never answers
+
+// Kill any in-flight FFmpeg child processes. On Windows, child processes are NOT
+// reaped when the parent exits, so an export still running at quit/close time
+// leaves an orphaned ffmpeg.exe holding pipes + the temp dir — and the app then
+// appears to hang on close. Call this on every quit / force-close path. (Defined
+// here; `activeExports` is initialised lower down but only read at call time.)
+function killAllExports() {
+  for (const job of activeExports.values()) {
+    try { job.cancel() } catch { /* already gone */ }
+  }
+}
+
+function clearCloseWatchdog() {
+  if (closeWatchdog) { clearTimeout(closeWatchdog); closeWatchdog = null }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -229,7 +245,7 @@ function createWindow() {
       `The app interface could not be loaded.\n\n${errorDesc} (${errorCode})\n${validatedURL || ''}`)
   })
 
-  mainWindow.on('closed', () => { mainWindow = null })
+  mainWindow.on('closed', () => { mainWindow = null; clearCloseWatchdog() })
 
   // Intercept the native close (X button / Alt+F4) to ask the renderer for an
   // exit confirmation. forceClose (set by app:forceClose) lets it through.
@@ -237,6 +253,22 @@ function createWindow() {
     if (forceClose || !mainWindow) return
     e.preventDefault()
     mainWindow.webContents.send('app:confirm-close')
+
+    // Watchdog for a wedged renderer. If the renderer is hung (busy decoding
+    // video, a stalled <video>, a long setState) it never shows the dialog and
+    // never replies, so the X button would do nothing forever — the reported
+    // intermittent "freeze on close". A live renderer acks immediately
+    // (app:confirm-close-ack → clearCloseWatchdog); if no ack lands within the
+    // grace period we assume it's wedged and force the window down. destroy()
+    // (not close()) skips renderer unload handlers, which a hung renderer can't
+    // run anyway.
+    clearCloseWatchdog()
+    closeWatchdog = setTimeout(() => {
+      closeWatchdog = null
+      forceClose = true
+      killAllExports()
+      if (mainWindow) mainWindow.destroy()
+    }, 4000)
   })
 
   mainWindow.webContents.on('devtools-opened', () => {
@@ -258,6 +290,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
   app.on('activate', () => { if (!mainWindow) createWindow() })
+  // Catch every quit path (window-all-closed, menu quit, OS shutdown) — make sure
+  // no FFmpeg child outlives the app and hangs the close.
+  app.on('before-quit', () => { clearCloseWatchdog(); killAllExports() })
 }
 
 // ─── IPC: FFmpeg availability ─────────────────────────────────────────────────
@@ -284,9 +319,16 @@ ipcMain.handle('gpu:reset', () => {
 // only confirms exit. The window 'close' handler asks the renderer, which calls
 // this once the user confirms.
 ipcMain.handle('app:forceClose', () => {
+  clearCloseWatchdog()
   forceClose = true
+  killAllExports()              // don't leave an export running after the user exits
   if (mainWindow) mainWindow.close()
 })
+
+// Renderer ack that it received the confirm-close request and is showing the
+// dialog — proof it's alive, so the wedged-renderer watchdog stands down and the
+// user's Exit/Cancel choice drives the rest.
+ipcMain.on('app:confirm-close-ack', () => { clearCloseWatchdog() })
 
 // ─── Persistent preferences ───────────────────────────────────────────────────
 // Stored as a flat JSON file in the OS user-data directory so settings survive

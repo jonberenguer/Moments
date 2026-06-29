@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // confirm-and-close: the main process intercepts the window close and asks the
   // renderer (onConfirmClose); the user's choice resolves via forceClose().
   forceClose:     ()   => ipcRenderer.invoke('app:forceClose'),
+  // Ack sent the instant the renderer receives a confirm-close request, so the
+  // main process knows the renderer is alive (not wedged) and stands down its
+  // force-close watchdog.
+  confirmCloseAck: ()  => ipcRenderer.send('app:confirm-close-ack'),
   onConfirmClose: (cb) => {
     const handler = () => cb()
     ipcRenderer.on('app:confirm-close', handler)
