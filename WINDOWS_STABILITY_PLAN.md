@@ -1,8 +1,8 @@
 # Windows Stability & Installer — Working Plan
 
 > Branch: **`windows-stability-and-installer`** (off `main` @ `50dc758`)
-> Status: **#1 and #3 DONE; #2 pending.** Created so work can be parked while
-> addressing an unrelated bug on `main`, then resumed here.
+> Status: **#1, #2, #3 DONE.** Created so work can be parked while addressing an
+> unrelated bug on `main`, then resumed here.
 
 This branch addresses three Windows-package issues raised during UAT. Each
 section below has the **traced root cause** (file:line) and **ranked candidate
@@ -63,7 +63,15 @@ renderer shows "Exit moments?" dialog → user clicks Exit → `app:forceClose`
 
 ---
 
-## 2. Crash importing 20+ videos (~10s clips)
+## 2. Crash importing 20+ videos (~10s clips) — ✅ DONE (path-based refactor + auto-relink)
+
+**Implemented** (see the DECISION block below for the design). Files:
+`electron/main.js` (`media://` protocol + path-based `dialog:openFiles`),
+`electron/preload.js` (`pathForFile`), `useMediaStore.js` (`toMediaSource`,
+path-carrying clips, `removeFromLibrary` revoke, workflow **v13** save +
+async auto-relink on load), `MediaPanel.jsx` (`filesToEntries`, no more
+`base64ToFile`), `useFFmpeg.js` (export copies from `path`, base64 only for the
+browser-File fallback). Music left as-is. Docs (CLAUDE.md, this file) updated.
 
 There is **no cache/storage cap** in the code — it's a memory blowup in the
 import path.
@@ -98,6 +106,38 @@ IPC message-size ceiling → crash. Scales with **import batch size** = the symp
 
 **Plan:** start with **2 + 3** (cheap mitigation, likely stops crashes); treat
 **1** (path-based) as a larger follow-up if needed.
+
+### DECISION: doing the path-based refactor (#1) + auto-relink (🚧 in progress)
+
+Owner chose the **path-based refactor** over the mitigation, **with auto-relink**.
+Scope: **media-library clips only** (videos/photos — the crash driver). **Music
+is out of scope** — it's a single file imported via its own `<input>`, needs bytes
+for the waveform anyway, and isn't the crash; it keeps today's manual filename
+re-link (no regression). Music auto-relink = documented follow-up.
+
+Design:
+- **`media://` custom protocol** (registered privileged: standard+secure+stream+
+  supportFetchAPI) in `electron/main.js` → `protocol.handle` maps
+  `media://m/<encodeURIComponent(absPath)>` to `net.fetch(file://…)`, forwarding
+  the Range header so `<video>` seeking works. Preview/thumbnails set
+  `src = media://…` (renderer never holds bytes).
+- **`dialog:openFiles`** returns `{ name, path, mime, size }` (no base64).
+- **Drag-drop / `<input>`**: resolve the OS path via `webUtils.getPathForFile`
+  (exposed through preload as `pathForFile`); if a path is found → path-based, else
+  fall back to the browser `File`+blob path (dev/non-Electron).
+- **Store**: media items + clips carry `path` (Electron) or `file` (browser) plus a
+  `url` for the DOM (`media://` or blob). `removeFromLibrary` revokes blob URLs.
+- **Export** (`useFFmpeg.js`): when a clip has `path`, `api.copyFile(path → temp)`
+  instead of the renderer base64 round-trip (`writeFileToPath`); browser `File`
+  clips keep `writeFileToPath`.
+- **Workflow v13**: save `path` per clip; on load, async-check `api.fileExists`
+  and auto-rebuild the library item + link the clip (filename fallback / manual
+  re-link if the path is gone — moved file / other machine). Old workflows
+  (no path) load exactly as before. Custom-font base64 table unaffected.
+
+**Verify:** import 50+ large videos without a crash; preview + seek a video; export
+(MP4 + a transition); save a workflow, reopen → media auto-reloads; move a file then
+load → graceful filename re-link prompt; dev/browser `<input>` fallback still works.
 
 ---
 

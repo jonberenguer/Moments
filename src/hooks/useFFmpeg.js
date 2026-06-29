@@ -481,8 +481,10 @@ export function useFFmpeg() {
       const validClips = []
       for (let i = 0; i < clips.length; i++) {
         const c = clips[i]
-        if (!c.file) { pushLog(`  ⚠ Skipping "${c.name}" — no file`); continue }
-        const ext = c.file.name.split('.').pop().toLowerCase()
+        // A clip is exportable if it has either an on-disk path (Electron, copied
+        // from source) or a browser File (dev/fallback, base64-written).
+        if (!c.file && !c.path) { pushLog(`  ⚠ Skipping "${c.name}" — no file`); continue }
+        const ext = (c.name || c.file?.name || '').split('.').pop().toLowerCase()
         // Use validClips.length as the index so that src_N.ext, aud_N.aac, and
         // seg_N.mp4 all share the same N — even when earlier clips were skipped.
         // Using the original loop index `i` would misalign audio and video steps
@@ -495,8 +497,16 @@ export function useFFmpeg() {
 
       pushLog('Writing source files…')
       for (const c of validClips) {
-        await writeFileToPath(c.file, p(c._fname))
-        pushLog(`  wrote ${c._fname}  (${(c.file.size/1024).toFixed(0)} KB)`)
+        if (c.path) {
+          // Path-based (Electron): copy straight from the original file on disk —
+          // no bytes round-trip through the renderer.
+          await api.copyFile(c.path, p(c._fname))
+          pushLog(`  copied ${c._fname}`)
+        } else {
+          // Browser/dev File: base64-write the bytes the renderer already holds.
+          await writeFileToPath(c.file, p(c._fname))
+          pushLog(`  wrote ${c._fname}  (${(c.file.size/1024).toFixed(0)} KB)`)
+        }
       }
       if (musicFile) {
         await writeFileToPath(musicFile, p('music_src'))

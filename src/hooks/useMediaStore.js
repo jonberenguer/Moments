@@ -4,8 +4,24 @@ import { customFontFamily } from '../textLayout'
 
 const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','heic','avif'])
 const VIDEO_EXTS = new Set(['mp4','mov','webm','avi','mkv','m4v'])
-const isImageFile = f => IMAGE_EXTS.has(f.name.split('.').pop().toLowerCase())
-const isVideoFile = f => VIDEO_EXTS.has(f.name.split('.').pop().toLowerCase())
+const extOf       = name => (name || '').split('.').pop().toLowerCase()
+const isAcceptable = entry => { const e = extOf(entry?.name); return IMAGE_EXTS.has(e) || VIDEO_EXTS.has(e) }
+
+// URL the renderer uses to render imported media off disk via the media://
+// protocol (electron/main.js) — so file bytes never enter the renderer.
+const mediaUrlFor = absPath => 'media://m/' + encodeURIComponent(absPath)
+
+// Normalize an import entry into common media fields. A path descriptor
+// ({ name, path } from the native dialog or webUtils.getPathForFile) is served via
+// media:// (no bytes in the renderer); a plain browser File keeps the blob-URL path
+// (dev / non-Electron fallback).
+function toMediaSource(entry) {
+  const isImage = IMAGE_EXTS.has(extOf(entry.name))
+  if (entry.path) {
+    return { name: entry.name, type: isImage ? 'image' : 'video', path: entry.path, file: null, url: mediaUrlFor(entry.path) }
+  }
+  return { name: entry.name, type: isImage ? 'image' : 'video', path: null, file: entry, url: URL.createObjectURL(entry) }
+}
 
 export function useMediaStore() {
   const [mediaLibrary,    setMediaLibrary]   = useState([])
@@ -84,12 +100,15 @@ export function useMediaStore() {
   const mediaCounter = useRef(0)
 
   // ── Media library ─────────────────────────────────────────────────────────
-  const addToLibrary = useCallback((files) => {
-    const mediaFiles = Array.from(files).filter(f => isImageFile(f) || isVideoFile(f))
-    const items = mediaFiles.map(f => {
-      const isImage = IMAGE_EXTS.has(f.name.split('.').pop().toLowerCase())
+  // Accepts either path descriptors ({ name, path, ... } from the native dialog /
+  // webUtils) or browser File objects. Path entries render via media:// and keep
+  // bytes out of the renderer (the large-import OOM fix).
+  const addToLibrary = useCallback((entries) => {
+    const accepted = Array.from(entries).filter(isAcceptable)
+    const items = accepted.map(e => {
+      const s = toMediaSource(e)
       mediaCounter.current++
-      return { id:`media_${mediaCounter.current}`, file:f, url:URL.createObjectURL(f), name:f.name, type:isImage?'image':'video', duration:isImage?4:null }
+      return { id:`media_${mediaCounter.current}`, file:s.file, path:s.path, url:s.url, name:s.name, type:s.type, duration:s.type==='image'?4:null }
     })
     setMediaLibrary(prev => [...prev, ...items])
     if (items.length > 0) setActiveMediaId(items[0].id)
@@ -101,14 +120,19 @@ export function useMediaStore() {
         if (!c._needsMedia) return c
         const match = items.find(item => item.name === c.name)
         if (!match) return c
-        return { ...c, file: match.file, url: match.url, mediaId: match.id, _needsMedia: false }
+        return { ...c, file: match.file, path: match.path, url: match.url, mediaId: match.id, _needsMedia: false }
       }))
     }
     return items
   }, [])
 
   const removeFromLibrary = useCallback((id) => {
-    setMediaLibrary(prev => prev.filter(m => m.id !== id))
+    setMediaLibrary(prev => {
+      const it = prev.find(m => m.id === id)
+      // Release blob URLs so they don't leak (media:// urls need no cleanup).
+      if (it?.url && it.url.startsWith('blob:')) { try { URL.revokeObjectURL(it.url) } catch { /* ignore */ } }
+      return prev.filter(m => m.id !== id)
+    })
     setActiveMediaId(prev => prev === id ? null : prev)
   }, [])
 
@@ -137,7 +161,7 @@ export function useMediaStore() {
     idCounter.current++
     const clip = {
       id:`clip_${idCounter.current}`,
-      file:mediaItem.file, url:mediaItem.url, name:mediaItem.name, type:mediaItem.type,
+      file:mediaItem.file, path:mediaItem.path, url:mediaItem.url, name:mediaItem.name, type:mediaItem.type,
       duration:mediaItem.duration||(mediaItem.type==='image'?4:null),
       fileDuration:mediaItem.type==='video'?(mediaItem.duration||null):null,
       trimStart:0, trimEnd:null, brightness:0, contrast:0, saturation:0, speed:1,
@@ -167,20 +191,21 @@ export function useMediaStore() {
     return clip.id
   }, [probeVideoDuration])
 
-  // addFiles: adds to library AND timeline (for drag-drop onto dropzone)
-  const addFiles = useCallback((files) => {
-    const mediaFiles = Array.from(files).filter(f => isImageFile(f) || isVideoFile(f))
+  // addFiles: adds to library AND timeline (for drag-drop onto dropzone).
+  // Accepts path descriptors or browser Files (see addToLibrary / toMediaSource).
+  const addFiles = useCallback((entries) => {
+    const accepted = Array.from(entries).filter(isAcceptable)
     const newClips = []; const newMedia = []
-    mediaFiles.forEach(f => {
-      const isImage = IMAGE_EXTS.has(f.name.split('.').pop().toLowerCase())
+    accepted.forEach(e => {
+      const s = toMediaSource(e)
+      const { url } = s
       mediaCounter.current++; idCounter.current++
-      const url = URL.createObjectURL(f)
       const mediaId = `media_${mediaCounter.current}`
-      newMedia.push({ id:mediaId, file:f, url, name:f.name, type:isImage?'image':'video', duration:isImage?4:null })
+      newMedia.push({ id:mediaId, file:s.file, path:s.path, url, name:s.name, type:s.type, duration:s.type==='image'?4:null })
       newClips.push({
-        id:`clip_${idCounter.current}`, file:f, url, name:f.name,
-        type:isImage?'image':'video', duration:isImage?4:null,
-        fileDuration: isImage ? null : null, // populated when video metadata loads
+        id:`clip_${idCounter.current}`, file:s.file, path:s.path, url, name:s.name,
+        type:s.type, duration:s.type==='image'?4:null,
+        fileDuration: null, // populated when video metadata loads
         trimStart:0, trimEnd:null, brightness:0, contrast:0, saturation:0, speed:1,
         transition:null, transitionDuration:null, viewZoom:1, viewPanX:0, viewPanY:0, // kept for workflow backward compat
         includeAudio:true, blurBackground:false, mediaId, imageEffect:null,
@@ -338,7 +363,7 @@ export function useMediaStore() {
       segFontKey[s.id] = key
     }
     const w = {
-      version: 12,
+      version: 13,
       title: momentTitle, aspectRatio, quality, musicVolume,
       globalTransition, transitionDuration,
       endFadeVideo, endFadeVideoDuration, endFadeAudio, endFadeAudioDuration,
@@ -346,6 +371,10 @@ export function useMediaStore() {
       customFonts: Object.keys(fontTable).length > 0 ? fontTable : undefined,
       clips: clips.map(c => ({
         id:c.id, name:c.name, type:c.type, duration:c.duration,
+        // v13: absolute source path → media auto-reloads on load when the file
+        // still exists (falls back to filename re-link otherwise). null for
+        // browser/dev File-based clips. Bytes are never embedded.
+        path: c.path || null,
         trimStart:c.trimStart, trimEnd:c.trimEnd, fileDuration:c.fileDuration,
         brightness:c.brightness, contrast:c.contrast, saturation:c.saturation,
         speed:c.speed, transition:c.transition, transitionDuration:c.transitionDuration,
@@ -378,7 +407,7 @@ export function useMediaStore() {
       const w = JSON.parse(json)
       // Version guard: warn on unknown future versions but still attempt load
       const v = w.version ?? 1
-      if (v > 12) console.warn(`Workflow version ${v} is newer than this app (v12); some settings may not load correctly.`)
+      if (v > 13) console.warn(`Workflow version ${v} is newer than this app (v13); some settings may not load correctly.`)
 
       playhead.set(0)   // rewind the playhead — old position is meaningless for a fresh project
       setMomentTitle(w.title || 'My Moment')
@@ -411,8 +440,9 @@ export function useMediaStore() {
 
       if (w.clips) {
         setClips(w.clips.map(c => ({
-          ...c,
+          ...c,                                    // preserves c.path (v13) for auto-relink below
           file: null, url: null, _needsMedia: true,
+          path:           c.path           ?? null,
           viewZoom:       c.viewZoom       ?? 1,
           viewPanX:       c.viewPanX       ?? 0,
           viewPanY:       c.viewPanY       ?? 0,
@@ -431,6 +461,40 @@ export function useMediaStore() {
         for (const c of w.clips) {
           const m = /^clip_(\d+)$/.exec(c.id || '')
           if (m) idCounter.current = Math.max(idCounter.current, +m[1])
+        }
+
+        // Auto-relink (v13+): clips saved with an absolute path are re-opened
+        // straight from disk (no manual re-add) when the file still exists. This
+        // runs async (path-existence is an IPC round-trip); clips whose path is
+        // gone (moved file / other machine / browser-saved) stay _needsMedia and
+        // fall back to the filename re-link flow. Old workflows have no path → no-op.
+        const fsApi = typeof window !== 'undefined' ? window.electronAPI : null
+        if (fsApi?.fileExists) {
+          ;(async () => {
+            const byPath = new Map()  // path → new media-library item
+            for (const c of w.clips) {
+              if (!c.path || byPath.has(c.path)) continue
+              let exists = false
+              try { exists = await fsApi.fileExists(c.path) } catch { exists = false }
+              if (!exists) continue
+              mediaCounter.current++
+              const isImage = IMAGE_EXTS.has(extOf(c.name))
+              byPath.set(c.path, {
+                id: `media_${mediaCounter.current}`, file: null, path: c.path,
+                url: mediaUrlFor(c.path), name: c.name, type: isImage ? 'image' : 'video',
+                duration: isImage ? (c.duration || 4) : (c.fileDuration || null),
+              })
+            }
+            if (byPath.size === 0) return
+            const items = [...byPath.values()]
+            setMediaLibrary(prev => [...prev, ...items])
+            setClips(prev => prev.map(c => {
+              if (!c._needsMedia || !c.path) return c
+              const item = byPath.get(c.path)
+              if (!item) return c
+              return { ...c, file: null, path: c.path, url: item.url, mediaId: item.id, _needsMedia: false }
+            }))
+          })()
         }
       }
 

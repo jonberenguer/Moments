@@ -2,7 +2,7 @@
  * Moments — Electron Preload
  * Exposes a minimal, typed API surface to the renderer via contextBridge.
  */
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 contextBridge.exposeInMainWorld('electronAPI', {
   // ── GPU ──────────────────────────────────────────────────────────────────
@@ -53,6 +53,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveFileDialog:  (opts)      => ipcRenderer.invoke('dialog:saveFile', opts),
   openFilesDialog: (opts)      => ipcRenderer.invoke('dialog:openFiles', opts),
   openPath:        (p)         => ipcRenderer.invoke('shell:openPath', p),
+  // Resolve a drag-dropped / <input> File to its on-disk path (Electron only; the
+  // renderer can't read File.path under context isolation). Returns null in a
+  // browser or if unavailable → caller falls back to the blob-URL File path.
+  pathForFile:     (file)      => { try { return webUtils.getPathForFile(file) || null } catch { return null } },
 
   // ── Preferences ───────────────────────────────────────────────────────────
   getPrefs:   (key)        => ipcRenderer.invoke('prefs:get', key),

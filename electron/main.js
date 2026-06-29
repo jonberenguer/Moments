@@ -5,11 +5,38 @@
  * Platform: Linux + Windows only
  */
 
-const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, protocol, net } = require('electron')
 const path   = require('path')
 const fs     = require('fs')
 const os     = require('os')
+const { pathToFileURL } = require('url')
 const { spawn, execSync } = require('child_process')
+
+// ─── media:// protocol ────────────────────────────────────────────────────────
+// Serves imported media straight off disk so the renderer never has to hold the
+// file bytes (the old base64 round-trip OOM'd on large imports). A clip's url is
+// `media://m/<encodeURIComponent(absolutePath)>`; the handler streams the file and
+// forwards the Range header so <video> seeking works. Must be declared privileged
+// BEFORE app 'ready'. standard+secure so <video src> / fetch treat it like https;
+// stream+supportFetchAPI for range/streaming; bypassCSP just in case.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'media', privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true, bypassCSP: true } },
+])
+
+function registerMediaProtocol() {
+  protocol.handle('media', (request) => {
+    try {
+      const u   = new URL(request.url)
+      const abs = decodeURIComponent(u.pathname.replace(/^\/+/, ''))
+      if (!abs || !fs.existsSync(abs)) return new Response('Not found', { status: 404 })
+      // Forward the request headers (notably Range) so file:// returns 206 for
+      // seekable video playback.
+      return net.fetch(pathToFileURL(abs).toString(), { headers: request.headers })
+    } catch (err) {
+      return new Response(`media:// error: ${err.message}`, { status: 500 })
+    }
+  })
+}
 
 // ─── FFmpeg binary path ───────────────────────────────────────────────────────
 // In production: bundled inside resources/ffmpeg/
@@ -287,7 +314,7 @@ if (!app.requestSingleInstanceLock()) {
       mainWindow.focus()
     }
   })
-  app.whenReady().then(createWindow)
+  app.whenReady().then(() => { registerMediaProtocol(); createWindow() })
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
   app.on('activate', () => { if (!mainWindow) createWindow() })
   // Catch every quit path (window-all-closed, menu quit, OS shutdown) — make sure
@@ -384,17 +411,19 @@ ipcMain.handle('dialog:openFiles', async (_, { accept } = {}) => {
   const pickedDir = path.dirname(filePaths[0])
   writePrefs({ ...readPrefs(), lastMediaDir: pickedDir })
 
-  // Read each file and return { name, base64, mime } so the renderer can
-  // reconstruct File/Blob objects without needing direct fs access.
+  // Return { name, path, mime, size } — NOT the bytes. The renderer renders the
+  // media via the media:// protocol (served off disk) and the export copies from
+  // the path, so file bytes never enter the renderer (avoids the large-import OOM).
   const results = []
   for (const fp of filePaths) {
     try {
-      const buf  = fs.readFileSync(fp)
       const ext  = path.extname(fp).slice(1).toLowerCase()
       const mime = ['mp4','mov','webm','avi','mkv','m4v'].includes(ext)
         ? `video/${ext === 'mov' ? 'quicktime' : ext}`
         : `image/${ext === 'jpg' ? 'jpeg' : ext}`
-      results.push({ name: path.basename(fp), base64: buf.toString('base64'), mime })
+      let size = 0
+      try { size = fs.statSync(fp).size } catch { /* best-effort */ }
+      results.push({ name: path.basename(fp), path: fp, mime, size })
     } catch { /* skip unreadable files */ }
   }
   return results
