@@ -28,7 +28,7 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 - Text overlays with font, size (30–400 px, default 144), colour, position (top / centre / bottom / custom drag), alignment (left/centre/right), box width, auto-wrapping, fade animation, and precise time gating (start + duration). Wrapping and placement are matched pixel-for-pixel between the preview and the export.
 - **Font choices** include CJK faces — 台北黑體 Taipei Sans, 源石黑體 GenSekiGothic, and Noto Sans Japanese / Traditional Chinese / Simplified Chinese / Korean — plus **custom font upload** (`.ttf`/`.otf`/`.woff`)
 - **Custom fonts** preview instantly, persist when the caption is deselected, can be reused across captions, and are saved inside the workflow (base64) so they re-link on reload
-- **Multi-language captions** — Korean, Chinese, and Japanese render in the export; a caption set to a non-CJK font auto-falls back to a bundled CJK font, while a CJK-capable font keeps your choice
+- **Multi-language captions (WYSIWYG)** — the selected font is always used; characters it can't render show as □ in **both** preview and export (with an Inspector warning), so what you see is what you get. Pick a CJK font (Noto Sans JP/TC/SC/KR, Taipei Sans, GenSeki) for Korean/Chinese/Japanese. Glyph coverage for uploaded fonts is read from the font's `cmap`.
 - **Clip transform** — resize (scale), rotate, and reposition each clip via Inspector sliders, applied in both preview and export (Phase A; on-canvas drag handles are planned)
 - Background music with trim and volume control — **previews in sync with the playhead** (starts at the trim point, honours mute/volume)
 - Per-clip: brightness, contrast, saturation, speed (video), trim (video), blur background fill, image motion effects (Ken Burns, Pan & Zoom, Parallax, Fade In)
@@ -106,20 +106,22 @@ cp /tmp/ffmpeg-win/ffmpeg-master-latest-win64-gpl/bin/ffmpeg.exe bin/win/ffmpeg.
 
 ## Fonts Setup
 
-Most preset fonts and all the Latin faces are committed in `public/ffmpeg/fonts/`. The **6 CJK preset fonts are not** (large; some host-gated) and must be added before those dropdown options render:
+All preset fonts — Latin faces **and** the 6 CJK faces (Noto Sans JP/TC/SC/KR, 台北黑體 Taipei Sans, 源石黑體 GenSekiGothic) — are committed in `public/ffmpeg/fonts/` (~77 MB), so a fresh clone builds with everything. No extra setup is needed.
+
+To **re-fetch / update** the Noto fonts:
 
 ```bash
-node scripts/download-fonts.js   # fetches Noto Sans JP / TC / SC / KR
+node scripts/download-fonts.js   # Noto Sans JP / TC / SC / KR → public/ffmpeg/fonts/
 ```
 
-Then download the two Taiwanese faces manually (the script prints these) and save them into `public/ffmpeg/fonts/` with the exact filenames:
+The two Taiwanese faces are manual (their hosts don't allow scripted download) — save with the exact filenames the script prints:
 
 | Font | Source | Filename |
 |---|---|---|
 | 源石黑體 GenSekiGothic | https://font.emtech.cc/fonts/GenSekiGothicTW | `GenSekiGothicTW-Regular.otf` |
 | 台北黑體 Taipei Sans | https://sites.google.com/view/jtfoundry/zh-tw/downloads | `TaipeiSansTCBeta-Regular.ttf` |
 
-Filenames must match the entries in `PRESET_FONTS` (`src/hooks/useFFmpeg.js`). Until present, selecting one of these fonts falls back / drops that caption's overlay on export; every other font (including custom uploads) is unaffected. Custom-uploaded fonts are also embedded (base64) in saved workflows, so they re-link on reload.
+Filenames must match the entries in `PRESET_FONTS` (`src/hooks/useFFmpeg.js`). Custom-uploaded fonts are embedded (base64) in saved workflows, so they re-link on reload.
 
 ---
 

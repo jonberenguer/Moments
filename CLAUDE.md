@@ -66,6 +66,7 @@ Progress capture so work-in-progress isn't lost across sessions.
 - **`electron-40`** — Electron 35 → **40.10.3** upgrade (clears the last `npm audit` advisory → 0 vulns). Parked, **unpushed**, needs **runtime QA** (Windows custom title bar, Linux GNOME/Wayland window + native dialogs, GPU/NVENC detect, full export). Branched *before* the text/transform work, so **rebase onto `main` before merging**.
 
 ### Done — export, timeline & preview (latest, on `main`)
+- **Text fonts overhaul:** caption font size **30–400 (default 144)**; **6 CJK preset fonts committed** (Noto JP/TC/SC/KR, Taipei Sans, GenSeki); **WYSIWYG CJK** — selected font always honored, unsupported glyphs → □ in preview+export (`src/fontCoverage.js` cmap parse + Inspector warning), no more silent Noto-CJK substitution; **custom fonts** get a content-stable family (fixes upload-repaint / drop-on-blur), are **reusable across captions** via the dropdown, and persist in workflows (base64). See **Preset Fonts → CJK rendering** and **Custom fonts**.
 - **Export quality presets + custom bitrate:** `encoderQualityArgs(encoder, tier, bitrateMbps)` — High/Balanced/Small tiers (CRF/CQ + preset per encoder) and an optional custom Mbps target (capped VBR). Picked in the Export modal, persisted as global prefs. See **Encoder quality args**.
 - **Web-ready MP4 + alternative formats:** always-on `+faststart` (moov atom to front); **WebM** (VP9/Opus) and **GIF** (palettegen/paletteuse) as final-stage transcodes off the H.264 master, gated on detected codec availability. See **Output formats (Stage 5)**.
 - **Real export progress + ETA:** work-weighted model driven by FFmpeg's streamed `time=` (replaces the old "advance as steps are queued" counter). See **Real progress + ETA**.
@@ -130,6 +131,8 @@ moments-app/
 │   ├── App.module.css / App.css
 │   ├── index.css                        # Design tokens + global reset
 │   ├── ErrorBoundary.jsx
+│   ├── textLayout.js                    # Shared wrap/measure (preview==export) + font hash/family helpers
+│   ├── fontCoverage.js                  # sfnt cmap parser + fontFallbackText (□ for unsupported glyphs)
 │   ├── hooks/
 │   │   ├── useMediaStore.js             # All clip/media/text/music/quality state + workflow save/load
 │   │   ├── useFFmpeg.js                 # Native FFmpeg wrapper + full export pipeline (IPC-based)
@@ -272,7 +275,9 @@ Custom font bytes must still be `.slice()`'d when stored into React state to avo
 On upload, the bytes get a **content-stable family** `customFontFamily = MomCustom_<hash>` (`hashFontBytes` in `src/textLayout.js`). This drives everything:
 - **Preview** (`Preview.jsx`): registers **every** caption's custom font once into a module-level `_loadedCustomFonts` cache (a `FontFace` per family, never removed), and `bumpFonts` forces a repaint when a face finishes loading. So an upload shows immediately, a re-upload swaps cleanly (new family), multiple captions can use different custom fonts, and a font is **never dropped** when the caption is deselected or its bytes detach post-export. `famFor` returns the segment's family.
 - **Export**: per-family temp files (above); the measure family is `seg.customFontFamily`.
-- **Workflow**: `saveWorkflow` already stores custom fonts as base64 in a deduped `customFonts` table (keyed by a name+content hash) and preserves `customFontFamily`; `loadWorkflow` restores the bytes and derives `customFontFamily` from them for older workflows. So the same font reused on other captions persists once and re-links on load.
+- **Reuse across captions** (`Inspector.jsx`): the font dropdown lists every uploaded custom font (deduped by family across all captions) under an **"Uploaded fonts"** optgroup, so any caption — including a newly added one — can pick a previously uploaded font (value `custom:<family>`; the bytes are copied per-caption via `.slice()`). No re-upload needed.
+- **Coverage**: a custom font's glyph coverage comes from the `cmap` parse (`src/fontCoverage.js`) — CJK text in a custom font that lacks those glyphs shows □ (see CJK rendering).
+- **Workflow**: `saveWorkflow` stores custom fonts as base64 in a deduped `customFonts` table (keyed by a name+content hash) and preserves `customFontFamily`; `loadWorkflow` restores the bytes and derives `customFontFamily` from them for older workflows. So the same font reused on other captions persists once and re-links on load.
 
 ---
 
@@ -620,7 +625,7 @@ const XFADE_MAP = {
 
 ## Preset Fonts
 
-All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via `extraResources`. At runtime, **export** resolves them via `api.fontPath(fontFile)` (→ `resources/ffmpeg/fonts/`), and the **preview** registers each one with an injected `@font-face` whose `url()` must be **base-relative** (`import.meta.env.BASE_URL + 'ffmpeg/fonts/…'`) — an absolute `/ffmpeg/fonts/…` path 404s in the packaged `file://` app and silently falls back to sans-serif. Preset order in `PRESET_FONTS` (`useFFmpeg.js`) is the dropdown order. `cjk: true` marks a face that can render CJK (see CJK routing below).
+All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via `extraResources`. At runtime, **export** resolves them via `api.fontPath(fontFile)` (→ `resources/ffmpeg/fonts/`), and the **preview** registers each one with an injected `@font-face` whose `url()` must be **base-relative** (`import.meta.env.BASE_URL + 'ffmpeg/fonts/…'`) — an absolute `/ffmpeg/fonts/…` path 404s in the packaged `file://` app and silently falls back to sans-serif. Preset order in `PRESET_FONTS` (`useFFmpeg.js`) is the dropdown order. `cjk: true` marks a face that can render CJK (see CJK rendering below).
 
 | Key | Label | File | License/Source |
 |---|---|---|---|
@@ -645,9 +650,9 @@ All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via 
 | `NotoSansKR-Regular` ⟨cjk⟩ | Noto Sans Korean | NotoSansKR-Regular.otf | OFL · Noto |
 | `NotoSansCJKkr-Regular` ⟨cjk⟩ | CJK (Korean/Chinese/JP) — fallback | NotoSansCJKkr-Regular.otf | OFL · Noto |
 
-> ⚠️ **The 6 CJK preset files are NOT in the repo** (large; some host-gated). Run `node scripts/download-fonts.js` (fetches the 4 Noto fonts) and place `GenSekiGothicTW-Regular.otf` + `TaipeiSansTCBeta-Regular.ttf` manually (links in the script header). Filenames must match the table. Until present, selecting one of these options renders the fallback / drops that caption's overlay on export; all other fonts are unaffected.
+> The 6 CJK preset fonts (Noto JP/TC/SC/KR, Taipei Sans, GenSeki) **are committed** in `public/ffmpeg/fonts/` (~77 MB total). To re-fetch the Noto ones: `node scripts/download-fonts.js`; Taipei Sans + GenSeki are manual (links in the script header). Filenames must match the table.
 
-**CJK routing (`useFFmpeg.js`):** Latin-only preset faces contain no Korean/Chinese/Japanese glyphs, and FFmpeg `drawtext` does **no per-glyph fallback** (one face per caption), so CJK text in them would export as `.notdef` tofu / blanks. `hasCJK(text)` (a Unicode-range test) detects such captions; the export routes them to the bundled `NotoSansCJKkr-Regular.otf` **only when the selected font isn't `cjk: true`**. A CJK-capable pick (Noto JP/TC/SC/KR, Taipei Sans, GenSeki) is kept as-is. Custom uploads are treated as non-CJK (usually lack CJK glyphs) → routed to the fallback for CJK text; pure-Latin captions keep the user's chosen/custom font. The preview mirrors this exactly in `famFor` (same routing → same wrap-measure family → preview==export). **Note:** `.otf`/`.ttc` need the matching `@font-face` `format()` (`opentype`/`collection`) in `loadPreviewFont`, and the `extraResources` filter must include `**/*.otf` and `**/*.ttc` or the font won't ship.
+**CJK rendering — WYSIWYG (`src/fontCoverage.js`):** The selected font is **always honored** — there is **no** silent substitution to a different CJK font. Any codepoint the chosen font can't render is shown as the block char **□** (tofu) in **both** the preview and the export, so preview == export (FFmpeg `drawtext` has no per-glyph fallback). Coverage is decided by `fontFallbackText()`: preset fonts via the `cjk` flag (a Latin preset → its CJK chars become □; a `cjk: true` face keeps the text), custom uploads via an sfnt `cmap` parse (`parseFontCoverage`, formats 0/4/6/12, cached by family; WOFF/WOFF2 are compressed → "unknown" → no tofu). The preview mirrors the export exactly: `famFor` returns the selected family and the same `fontFallbackText` sanitizes the wrapped text. The Inspector shows a **warning** (`hasUnsupportedGlyphs`) when a caption has glyphs its font can't render. So: pick Noto Sans TC for Traditional Chinese → you see it; leave a Latin font on CJK text → you see □ + the warning. **Note:** `.otf`/`.ttc` need the matching `@font-face` `format()` (`opentype`/`collection`) in `loadPreviewFont`, and the `extraResources`/`files` globs must include `**/*.otf` and `**/*.ttc`. The preview re-renders on `document.fonts.ready` so wrapping/measuring re-runs in the real face once a font finishes loading.
 
 ---
 
@@ -781,6 +786,8 @@ Caption text was inlined as `drawtext=…:text='<escaped>'`. The escape pass ran
 
 ### CJK (Korean/Chinese/Japanese) text overlays missing from export
 Captions in Korean/Chinese rendered fine in the preview but exported as blank/tofu — only Latin text showed. Cause: every bundled preset font is Latin-only, and FFmpeg `drawtext` uses one font face per caption with no per-glyph fallback, so it draws `.notdef` boxes (or nothing) for CJK codepoints. The preview "worked" only because the browser does CSS per-glyph fallback to OS fonts. Fixed by bundling `NotoSansCJKkr-Regular.otf` (OFL; Latin + Hangul + Han + kana) and auto-routing any caption matching `hasCJK()` to it on export — same on Linux and Windows. Required three companion changes: `loadPreviewFont` must emit `format('opentype')` for `.otf`, the `extraResources` font filter must include `**/*.otf`, and the preview font stack appends `'MomNotoCJK'` (lazy-loaded when CJK is present) so preview ≈ export. Verified with FFmpeg renders of Korean/Chinese/mixed strings.
+
+> **Superseded by WYSIWYG (current behavior):** the auto-route-to-Noto-CJK fallback was later removed in favor of honoring the selected font and showing □ for glyphs it can't render (selectable CJK fonts now exist: Noto JP/TC/SC/KR, Taipei Sans, GenSeki). See **CJK rendering** under Preset Fonts and `src/fontCoverage.js`.
 
 ### Windows build icon error
 `package.json` pointed `win.icon` and `linux.icon` at `public/favicon.svg`. electron-builder's icon converter cannot process SVG. Fixed by generating `public/icon.png` (256×256 RGBA PNG from the SVG) and pointing both targets at it.
