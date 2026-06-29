@@ -7,6 +7,12 @@ on:
   pull_request:
     branches: [main]
 
+# Workflow-level env — available to every job and step (build-linux,
+# build-windows, release). electron-builder reads GH_TOKEN; the FFmpeg download
+# uses direct release-asset URLs so it doesn't need it.
+env:
+  GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
 jobs:
   build-linux:
     runs-on: ubuntu-latest
@@ -25,9 +31,7 @@ jobs:
         run: node scripts/download-ffmpeg.js linux
 
       - name: Build Linux AppImage
-        run: npm run build:linux
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }} # Securely injects the secret
+        run: npm run build:linux   # GH_TOKEN now provided by the workflow-level env
 
       - uses: actions/upload-artifact@v4
         with:
