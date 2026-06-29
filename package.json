@@ -17,6 +17,7 @@
     "dev:electron": "wait-on http://localhost:5173 && electron .",
     "build": "vite build",
     "build:win": "npm run build && electron-builder --win",
+    "build:win:portable": "npm run build && electron-builder --win -c.win.target=portable",
     "build:linux": "npm run build && electron-builder --linux",
     "build:all": "npm run build && electron-builder --win --linux",
     "lint": "eslint ."

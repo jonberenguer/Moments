@@ -775,11 +775,17 @@ prefs preserved. (No auto-update yet; that would be a separate electron-updater 
 GitHub Releases piece.)
 
 **Why it must build on Windows:** NSIS uninstaller-stub generation **fails when
-cross-compiling from Linux**, so the installer is built on the `windows-latest` CI
-runner (native). For a quick local smoke build on Linux, swap `win.target` to the
-preserved **`_win_portable`** block in `package.json` (self-extracting `.exe`, no
-uninstaller). The old `portable` target's slow startup — it unpacks the whole app
-to `%TEMP%` on every launch — is the reason for moving to a real installer.
+cross-compiling from Linux** — electron-builder has to *execute* a temp uninstaller
+stub (under Wine) to emit `…__uninstaller.exe`, which doesn't run in the Linux/
+container build, so the installer step dies with `File: "…__uninstaller.exe" -> no
+files found`. So the installer is built on the `windows-latest` CI runner (native).
+
+**Local Linux smoke build:** run **`npm run build:win:portable`** — it overrides the
+target to `portable` (`electron-builder --win -c.win.target=portable`, no uninstaller
+step) without touching the shipping NSIS config. (The preserved `_win_portable`
+config block is the equivalent manual swap.) The old `portable` target's slow
+startup — it unpacks the whole app to `%TEMP%` on every launch — is the reason for
+moving to a real installer for distribution.
 
 ### Windows cross-compilation from Linux
 

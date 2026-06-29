@@ -153,9 +153,13 @@ updated app remains; settings are preserved). It is built on the **`windows-late
 GitHub Actions runner** (native Windows) — see `.github/workflows/build.yml`.
 
 > **Building on Linux:** NSIS uninstaller-stub generation fails when
-> cross-compiling from Linux. For a quick local smoke build, swap `win.target` to
-> the preserved **`_win_portable`** block in `package.json` (a self-extracting
-> portable `.exe`, no installer). Wine is still required for that path:
+> cross-compiling from Linux (electron-builder can't execute the uninstaller stub,
+> so the build dies with `…__uninstaller.exe -> no files found`). For a quick local
+> smoke build, run the portable target instead — no uninstaller step:
+> ```bash
+> npm run build:win:portable     # → dist-electron/*.exe (portable, builds on Linux)
+> ```
+> Wine is still required for that path:
 > ```bash
 > apt-get install -y wine wine64 libwine mono-runtime
 > wine --version   # should print wine-6.x or higher
