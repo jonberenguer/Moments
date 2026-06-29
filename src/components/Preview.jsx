@@ -5,6 +5,12 @@ import { hasCJK, wrapText } from '../textLayout'
 import { usePlayhead } from '../playhead'
 import styles from './Preview.module.css'
 
+// Custom @font-face families already registered in the document, keyed by the
+// content-stable family name. Module-level so a font, once loaded, is never
+// re-added and never dropped — even after the segment's bytes detach post-export
+// or the caption is deselected.
+const _loadedCustomFonts = new Set()
+
 const TRANS_LABELS = { crossfade:'Crossfade', slide_left:'Slide ←', slide_up:'Slide ↑', zoom_in:'Zoom', dip_black:'Dip ●' }
 // Per-transition "enter" animation played on the incoming clip when the playhead
 // crosses a clip boundary during playback (restores the clip-change flourish).
@@ -284,25 +290,40 @@ export default function Preview({
   const anyCJK = textSegments.some(s => hasCJK(s.text))
   if (anyCJK) loadPreviewFont(CJK_FONT_KEY)
 
-  // Load custom font into the browser whenever customFontData changes
+  // Register EVERY custom font used by any caption (each as its own content-stable
+  // @font-face family), so uploading a font repaints the caption, re-uploading a
+  // different one swaps cleanly, multiple captions can use different custom fonts,
+  // and a font reused across captions resolves to the same family. bumpFonts
+  // forces a re-render once a face finishes loading async.
+  const [, bumpFonts] = useState(0)
   useEffect(() => {
-    const customSeg = textSegments.find(s => s.fontFile === 'custom' && s.customFontData)
-    if (!customSeg) return
-    const { customFontData } = customSeg
-    const fontFace = new FontFace('MomCustomFont', customFontData.buffer ?? customFontData)
-    fontFace.load().then(loaded => {
-      document.fonts.add(loaded)
-    }).catch(() => {})
-  }, [textSegments.find(s => s.fontFile === 'custom')?.customFontData])
+    for (const s of textSegments) {
+      if (s.fontFile !== 'custom' || !s.customFontFamily) continue
+      const data = s.customFontData
+      if (!data || data.byteLength === 0) continue          // missing/detached → skip
+      if (_loadedCustomFonts.has(s.customFontFamily)) continue
+      _loadedCustomFonts.add(s.customFontFamily)
+      try {
+        new FontFace(s.customFontFamily, data).load()
+          .then(loaded => { document.fonts.add(loaded); bumpFonts(v => v + 1) })
+          .catch(() => { _loadedCustomFonts.delete(s.customFontFamily) })
+      } catch { _loadedCustomFonts.delete(s.customFontFamily) }
+    }
+  }, [textSegments])
   // Resolve a caption's render font + the single family name used to MEASURE
-  // wrapping. Mirrors the export exactly: a CJK caption renders entirely in Noto
-  // (drawtext is one-font-per-caption), so the preview previews the real export,
-  // and wrapText measures in the same face the export will use → identical breaks.
+  // wrapping. Mirrors the export's routing exactly so preview==export: a CJK
+  // caption renders in the selected font if it covers CJK (Noto JP/TC/SC/KR,
+  // Taipei, GenSeki), else falls back to the bundled Noto CJK; custom fonts fall
+  // back to Noto for CJK text (they rarely contain CJK glyphs).
   const famFor = (seg) => {
-    if (hasCJK(seg.text)) return { css: `'MomNotoCJK', sans-serif`, measure: 'MomNotoCJK' }
     const k = seg.fontFile || 'Poppins-Regular'
-    if (k === 'custom') return { css: `'MomCustomFont', sans-serif`, measure: 'MomCustomFont' }
+    if (k === 'custom') {
+      if (hasCJK(seg.text)) return { css: `'MomNotoCJK', sans-serif`, measure: 'MomNotoCJK' }
+      const fam = seg.customFontFamily || 'MomCustomFont'
+      return { css: `'${fam}', sans-serif`, measure: fam }
+    }
     const p = PRESET_FONTS.find(f => f.key === k)
+    if (!p?.cjk && hasCJK(seg.text)) return { css: `'MomNotoCJK', sans-serif`, measure: 'MomNotoCJK' }
     const cf = p?.cssFamily || 'sans-serif'
     return { css: `'${cf}', sans-serif`, measure: cf }
   }

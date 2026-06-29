@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState } from 'react'
 import styles from './Inspector.module.css'
 import { PRESET_FONTS } from '../hooks/useFFmpeg'
+import { customFontFamily } from '../textLayout'
 
 const TRANSITIONS = [
   { value:'',           label:'Use global default' },
@@ -351,7 +352,10 @@ function TextPanel({ seg, onUpdate }) {
       // as ev.target.result. This prevents postMessage transfer from detaching
       // the buffer stored in React state on the first export.
       const bytes = new Uint8Array(ev.target.result).slice()
-      onUpdate({fontFile:'custom',customFontName:file.name,customFontData:bytes})
+      // A content-stable family name so the preview repaints on upload, a
+      // re-upload swaps cleanly, and the same font reused on another caption
+      // (or restored from a workflow) resolves to the same @font-face.
+      onUpdate({fontFile:'custom',customFontName:file.name,customFontData:bytes,customFontFamily:customFontFamily(bytes)})
     }
     r.readAsArrayBuffer(file); e.target.value=''
   }
@@ -370,7 +374,7 @@ function TextPanel({ seg, onUpdate }) {
       </div>
       <div className={styles.section}>
         <div className={styles.sectionTitle}>Appearance</div>
-        <Slider label="Font size" value={seg.fontSize||60} min={60} max={260} step={2} format={v=>`${v}px`} onChange={v=>onUpdate({fontSize:v})}/>
+        <Slider label="Font size" value={seg.fontSize||144} min={30} max={400} step={2} format={v=>`${v}px`} onChange={v=>onUpdate({fontSize:v})}/>
         <Slider label="Opacity" value={seg.opacity??100} min={0} max={100} step={1} format={v=>`${v}%`} onChange={v=>onUpdate({opacity:v})}/>
         <div className={styles.metaRow}><span className={styles.metaKey}>Color</span>
           <input type="color" className={styles.colorInput} value={seg.color||'#ffffff'} onChange={e=>onUpdate({color:e.target.value})}/></div>

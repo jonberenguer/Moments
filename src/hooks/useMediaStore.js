@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { playhead } from '../playhead'
+import { customFontFamily } from '../textLayout'
 
 const IMAGE_EXTS = new Set(['jpg','jpeg','png','gif','webp','heic','avif'])
 const VIDEO_EXTS = new Set(['mp4','mov','webm','avi','mkv','m4v'])
@@ -217,7 +218,7 @@ export function useMediaStore() {
     const used = new Set(textSegments.map(s => s.id))
     while (used.has(`seg_${n}`)) n++
     segCounter.current = n
-    const seg = { id:`seg_${n}`, text:'Caption', startTime, duration:3, animation:'fade', fontSize:60, color:'#ffffff', opacity:100, shadow:true, outline:false, fontFile:'Poppins-Regular', customFontName:null, position:'custom', posX:50, posY:50, textAlign:'center', boxWidth:80 }
+    const seg = { id:`seg_${n}`, text:'Caption', startTime, duration:3, animation:'fade', fontSize:144, color:'#ffffff', opacity:100, shadow:true, outline:false, fontFile:'Poppins-Regular', customFontName:null, position:'custom', posX:50, posY:50, textAlign:'center', boxWidth:80 }
     setTextSegments(prev => [...prev, seg])
     setActiveSelection({ type:'text', id:seg.id })
     return seg.id
@@ -457,7 +458,12 @@ export function useMediaStore() {
         if (base.fontFile === 'custom' && base.customFontName) {
           // Try hash key first (v10), fall back to name key (v9 backward compat)
           const data = fontDataMap[base._fontKey] ?? fontDataMap[base.customFontName]
-          if (data) base.customFontData = data.slice() // fresh copy per segment
+          if (data) {
+            base.customFontData = data.slice() // fresh copy per segment
+            // Older workflows have no customFontFamily — derive the stable family
+            // from the bytes so the preview/export resolve the right @font-face.
+            if (!base.customFontFamily) base.customFontFamily = customFontFamily(base.customFontData)
+          }
         }
         delete base._fontKey  // internal field, don't keep in state
         return base

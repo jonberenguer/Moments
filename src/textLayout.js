@@ -12,6 +12,18 @@
 const CJK_CHAR_RE = /[ᄀ-ᇿ⺀-⿟　-ヿ㄰-㆏㐀-䶿一-鿿ꥠ-꥿가-퟿豈-﫿︰-﹏＀-￯]/
 export function hasCJK(text) { return CJK_CHAR_RE.test(text || '') }
 
+// Stable content hash of font bytes → a unique CSS family name. Shared by the
+// upload handler, preview, export, and workflow save/load so the SAME font
+// always resolves to the SAME @font-face family (uploads repaint, re-uploads
+// swap correctly, and the same font across captions/workflows dedupes).
+export function hashFontBytes(bytes) {
+  let h = 0
+  const n = Math.min(bytes.length, 4096)
+  for (let i = 0; i < n; i++) h = (h * 31 + bytes[i]) >>> 0
+  return h
+}
+export function customFontFamily(bytes) { return `MomCustom_${hashFontBytes(bytes)}` }
+
 // Wrapping is computed as if the canvas were this many px wide; both renderers
 // scale from here, so a given (fontSize, boxWidth%) yields the same line breaks.
 export const WRAP_REF_W = 1280

@@ -54,10 +54,20 @@ export const PRESET_FONTS = [
   { key: 'LiberationSans-Bold',     label: 'Sans Bold',    file: 'LiberationSans-Bold.ttf',    cssFamily: 'MomSansBold' },
   { key: 'LiberationSerif-Regular', label: 'Serif',        file: 'LiberationSerif-Regular.ttf',cssFamily: 'MomSerif' },
   { key: 'LiberationMono-Regular',  label: 'Mono',         file: 'LiberationMono-Regular.ttf', cssFamily: 'MomMono' },
-  // CJK-capable face (covers Latin + Korean Hangul + Chinese/Japanese Han) — OFL.
-  // Used automatically for any caption containing CJK characters; the Latin-only
-  // faces above render no glyphs for them and drawtext does no glyph fallback.
-  { key: 'NotoSansCJKkr-Regular',   label: 'CJK (Korean/Chinese/JP)', file: 'NotoSansCJKkr-Regular.otf', cssFamily: 'MomNotoCJK' },
+  // ── CJK-capable faces (cjk:true) ──────────────────────────────────────────
+  // These cover Latin + Han/Kana/Hangul, so a CJK caption set to one of them is
+  // NOT force-routed to the fallback below — the user's choice is honoured.
+  // (Latin-only faces above have no CJK glyphs and drawtext does no per-glyph
+  // fallback, so CJK captions in those are routed to NotoSansCJKkr.)
+  { key: 'TaipeiSansTC-Regular',  label: '台北黑體 Taipei Sans',              file: 'TaipeiSansTCBeta-Regular.ttf', cssFamily: 'MomTaipeiSans', cjk: true },
+  { key: 'GenSekiGothicTW-Regular', label: '源石黑體 GenSekiGothic',          file: 'GenSekiGothicTW-Regular.otf',  cssFamily: 'MomGenSeki',    cjk: true },
+  { key: 'NotoSansJP-Regular',    label: 'Noto Sans Japanese',              file: 'NotoSansJP-Regular.otf',       cssFamily: 'MomNotoJP',     cjk: true },
+  { key: 'NotoSansTC-Regular',    label: 'Noto Sans Traditional Chinese',   file: 'NotoSansTC-Regular.otf',       cssFamily: 'MomNotoTC',     cjk: true },
+  { key: 'NotoSansSC-Regular',    label: 'Noto Sans Simplified Chinese',    file: 'NotoSansSC-Regular.otf',       cssFamily: 'MomNotoSC',     cjk: true },
+  { key: 'NotoSansKR-Regular',    label: 'Noto Sans Korean',                file: 'NotoSansKR-Regular.otf',       cssFamily: 'MomNotoKR',     cjk: true },
+  // Universal CJK fallback (covers Latin + Hangul + Han + kana) — OFL. Used
+  // automatically for any CJK caption whose selected font has no CJK glyphs.
+  { key: 'NotoSansCJKkr-Regular',   label: 'CJK (Korean/Chinese/JP)', file: 'NotoSansCJKkr-Regular.otf', cssFamily: 'MomNotoCJK', cjk: true },
 ]
 
 export const CJK_FONT_KEY = 'NotoSansCJKkr-Regular'
@@ -874,11 +884,19 @@ export function useFFmpeg() {
       // ══════════════════════════════════════════════════════════════════
       const activeSegs = textSegments.filter(s => s.text?.trim())
       if (activeSegs.length > 0) {
-        // Write custom font data to temp dir if needed
+        // Write each DISTINCT custom font to its own temp file, keyed by the
+        // content-stable family — so captions using different uploaded fonts each
+        // get the right face (the old single font_custom.ttf overwrote and the
+        // last one won). Reused fonts (same family) are written once.
         for (const seg of activeSegs) {
           if (seg.fontFile === 'custom' && seg.customFontData) {
-            await writeUint8ToPath(seg.customFontData.slice(), p('font_custom.ttf'))
-            fontPathCache['custom'] = fp('font_custom.ttf')
+            const fam = seg.customFontFamily || 'MomCustomFont'
+            const cacheKey = `custom:${fam}`
+            if (!fontPathCache[cacheKey]) {
+              const fname = `font_${fam}.ttf`
+              await writeUint8ToPath(seg.customFontData.slice(), p(fname))
+              fontPathCache[cacheKey] = fp(fname)
+            }
           }
         }
 
@@ -890,11 +908,14 @@ export function useFFmpeg() {
         const presetByKey = Object.fromEntries(PRESET_FONTS.map(f => [f.key, f]))
         const resolved = activeSegs.map(seg => {
           let key = seg.fontFile || 'Poppins-Regular'
-          if (key !== CJK_FONT_KEY && hasCJK(seg.text)) key = CJK_FONT_KEY
+          // Route CJK captions to the bundled fallback ONLY when the selected
+          // font can't render CJK (Latin presets + custom uploads). A CJK-capable
+          // preset (Noto JP/TC/SC/KR, Taipei Sans, GenSeki) keeps the user's pick.
+          if (!presetByKey[key]?.cjk && hasCJK(seg.text)) key = CJK_FONT_KEY
           // CSS family used to MEASURE wrapping — must match what will render so
           // preview and export break at the same points.
-          const family = hasCJK(seg.text) ? 'MomNotoCJK'
-            : key === 'custom'           ? 'MomCustomFont'
+          const family = key === 'custom'
+            ? (seg.customFontFamily || 'MomCustomFont')
             : (presetByKey[key]?.cssFamily || 'sans-serif')
           return { seg, key, family }
         })
@@ -928,8 +949,9 @@ export function useFFmpeg() {
             await api.writeFile(p(tname), btoa(unescape(encodeURIComponent(lines[i]))))
             lineFiles.push(fp(tname))
           }
-          const fontPath = (key === 'custom' && fontPathCache['custom'])
-            ? fontPathCache['custom']
+          const customKey = `custom:${seg.customFontFamily || 'MomCustomFont'}`
+          const fontPath = (key === 'custom' && fontPathCache[customKey])
+            ? fontPathCache[customKey]
             : (fontPathCache[key] || fontPathCache['Poppins-Regular'])
           allDrawtexts.push(...buildCaptionDrawtexts(seg, W, H, fontPath, lineFiles, lineWidths, fontAsc, fontDesc))
         }
