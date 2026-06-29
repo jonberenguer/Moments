@@ -2,6 +2,7 @@ import { useRef, useCallback, useState } from 'react'
 import styles from './Inspector.module.css'
 import { PRESET_FONTS } from '../hooks/useFFmpeg'
 import { customFontFamily } from '../textLayout'
+import { hasUnsupportedGlyphs } from '../fontCoverage'
 
 const TRANSITIONS = [
   { value:'',           label:'Use global default' },
@@ -391,6 +392,9 @@ function TextPanel({ seg, onUpdate }) {
           <button className={styles.uploadFontSmall} onClick={()=>fontUploadRef.current?.click()}>Upload font…</button>
           <input ref={fontUploadRef} type="file" accept=".ttf,.otf,.woff" style={{display:'none'}} onChange={handleFontUpload}/>
         </div>
+        {hasUnsupportedGlyphs(seg.text, seg, PRESET_FONTS.find(f=>f.key===(seg.fontFile||'Poppins-Regular'))?.cjk) && (
+          <div className={styles.fontWarning}>⚠ This font can't render some characters — they'll show as □. Pick a CJK font (e.g. Noto Sans / Taipei Sans) for Korean/Chinese/Japanese.</div>
+        )}
         <Slider label="Box width" value={seg.boxWidth??80} min={20} max={100} step={1} format={v=>`${v}%`} onChange={v=>onUpdate({boxWidth:v})}/>
         <div className={styles.metaRow}><span className={styles.metaKey}>Align</span>
           <select className={styles.selectSmall} value={seg.textAlign||'center'} onChange={e=>onUpdate({textAlign:e.target.value})}>

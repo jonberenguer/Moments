@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react'
-import { PRESET_FONTS, loadPreviewFont, CJK_FONT_KEY } from '../hooks/useFFmpeg'
-import { hasCJK, wrapText } from '../textLayout'
+import { PRESET_FONTS, loadPreviewFont } from '../hooks/useFFmpeg'
+import { wrapText } from '../textLayout'
+import { fontFallbackText } from '../fontCoverage'
 import { usePlayhead } from '../playhead'
 import styles from './Preview.module.css'
 
@@ -284,11 +285,6 @@ export default function Preview({
 
   const allFontKeys = [...new Set(textSegments.map(s=>s.fontFile||'Poppins-Regular'))]
   allFontKeys.forEach(k=>{if(k!=='custom')loadPreviewFont(k)})
-  // Mirror the export's CJK fallback in the preview: if any caption contains
-  // Korean/Chinese/Japanese text, load the bundled CJK font so the preview shows
-  // those glyphs in the same face the export will use (not the OS fallback).
-  const anyCJK = textSegments.some(s => hasCJK(s.text))
-  if (anyCJK) loadPreviewFont(CJK_FONT_KEY)
 
   // Register EVERY custom font used by any caption (each as its own content-stable
   // @font-face family), so uploading a font repaints the caption, re-uploading a
@@ -310,21 +306,17 @@ export default function Preview({
       } catch { _loadedCustomFonts.delete(s.customFontFamily) }
     }
   }, [textSegments])
-  // Resolve a caption's render font + the single family name used to MEASURE
-  // wrapping. Mirrors the export's routing exactly so preview==export: a CJK
-  // caption renders in the selected font if it covers CJK (Noto JP/TC/SC/KR,
-  // Taipei, GenSeki), else falls back to the bundled Noto CJK; custom fonts fall
-  // back to Noto for CJK text (they rarely contain CJK glyphs).
+  // Resolve a caption's render font + the family used to MEASURE wrapping. The
+  // SELECTED font is always honored (no silent CJK substitution) — characters it
+  // can't render are turned into □ by fontFallbackText (below), exactly as the
+  // export does, so preview == export.
   const famFor = (seg) => {
     const k = seg.fontFile || 'Poppins-Regular'
     if (k === 'custom') {
-      if (hasCJK(seg.text)) return { css: `'MomNotoCJK', sans-serif`, measure: 'MomNotoCJK' }
       const fam = seg.customFontFamily || 'MomCustomFont'
       return { css: `'${fam}', sans-serif`, measure: fam }
     }
-    const p = PRESET_FONTS.find(f => f.key === k)
-    if (!p?.cjk && hasCJK(seg.text)) return { css: `'MomNotoCJK', sans-serif`, measure: 'MomNotoCJK' }
-    const cf = p?.cssFamily || 'sans-serif'
+    const cf = PRESET_FONTS.find(f => f.key === k)?.cssFamily || 'sans-serif'
     return { css: `'${cf}', sans-serif`, measure: cf }
   }
 
@@ -385,11 +377,13 @@ export default function Preview({
             const sOff=Math.max(1,Math.round(px*0.06))
             const oFrac=Math.max(0,Math.min(1,(seg.opacity??100)/100))
             const fam=famFor(seg)
-            // Pre-wrap with the shared layout (same algo + font the export uses) and
-            // render explicit lines, so the preview breaks exactly where the export
-            // will. fit-content + text-align aligns lines within the text block —
-            // matching drawtext's text_align within text_w.
-            const lines=wrapText(seg.text||'', fam.measure, seg.fontSize||60, seg.boxWidth ?? 80)
+            // Replace glyphs the selected font can't render with □ (same as the
+            // export), then wrap with the shared layout so the preview breaks AND
+            // tofus exactly where the export will. fit-content + text-align aligns
+            // lines within the block — matching drawtext's text_align within text_w.
+            const presetCjk=PRESET_FONTS.find(f=>f.key===(seg.fontFile||'Poppins-Regular'))?.cjk
+            const dispText=fontFallbackText(seg.text||'', seg, presetCjk)
+            const lines=wrapText(dispText, fam.measure, seg.fontSize||60, seg.boxWidth ?? 80)
             return (
               <div key={seg.id} data-textseg
                 className={[isCustom?styles.textOverlayCustom:styles.textOverlay,!isCustom?styles[`pos_${seg.position||'bottom'}`]:'',isPlaying?styles[`anim_${seg.animation||'fade'}`]:''].join(' ')}

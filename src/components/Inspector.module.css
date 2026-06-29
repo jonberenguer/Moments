@@ -140,6 +140,12 @@
 }
 .uploadFontSmall:hover { color: var(--accent); border-color: var(--accent-border); background: var(--accent-dim); }
 
+.fontWarning {
+  margin-top: 6px; padding: 6px 8px; border-radius: 5px;
+  font-size: 10px; line-height: 1.35; color: var(--text1);
+  background: rgba(232,201,106,.10); border: 1px solid var(--accent-border);
+}
+
 /* ── Image Effects ─────────────────────────────────────────────────────────── */
 .effectGrid {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px;

@@ -16,7 +16,8 @@
  */
 
 import { useState, useRef, useCallback } from 'react'
-import { hasCJK, wrapText } from '../textLayout'
+import { wrapText } from '../textLayout'
+import { fontFallbackText } from '../fontCoverage'
 
 const api = window.electronAPI   // injected by preload.js
 
@@ -69,8 +70,6 @@ export const PRESET_FONTS = [
   // automatically for any CJK caption whose selected font has no CJK glyphs.
   { key: 'NotoSansCJKkr-Regular',   label: 'CJK (Korean/Chinese/JP)', file: 'NotoSansCJKkr-Regular.otf', cssFamily: 'MomNotoCJK', cjk: true },
 ]
-
-export const CJK_FONT_KEY = 'NotoSansCJKkr-Regular'
 
 // ─── Preview font loader (same as WASM version) ───────────────────────────────
 const _loadedFonts = new Set()
@@ -907,17 +906,16 @@ export function useFFmpeg() {
         // so such captions would export blank — route them to the bundled CJK font.
         const presetByKey = Object.fromEntries(PRESET_FONTS.map(f => [f.key, f]))
         const resolved = activeSegs.map(seg => {
-          let key = seg.fontFile || 'Poppins-Regular'
-          // Route CJK captions to the bundled fallback ONLY when the selected
-          // font can't render CJK (Latin presets + custom uploads). A CJK-capable
-          // preset (Noto JP/TC/SC/KR, Taipei Sans, GenSeki) keeps the user's pick.
-          if (!presetByKey[key]?.cjk && hasCJK(seg.text)) key = CJK_FONT_KEY
-          // CSS family used to MEASURE wrapping — must match what will render so
-          // preview and export break at the same points.
+          // Honor the SELECTED font — no silent cross-font substitution. Any
+          // codepoint the font can't render is sanitized to □ (tofu), exactly as
+          // the preview does (shared fontFallbackText), so drawtext (which has no
+          // per-glyph fallback) produces the same result the user saw.
+          const key = seg.fontFile || 'Poppins-Regular'
           const family = key === 'custom'
             ? (seg.customFontFamily || 'MomCustomFont')
             : (presetByKey[key]?.cssFamily || 'sans-serif')
-          return { seg, key, family }
+          const dispText = fontFallbackText(seg.text || '', seg, presetByKey[key]?.cjk)
+          return { seg, key, family, dispText }
         })
         // Make sure each measuring font is registered/loaded in the renderer before
         // wrapText measures — otherwise measureText uses a fallback face and the
@@ -933,8 +931,8 @@ export function useFFmpeg() {
         const measCtx = document.createElement('canvas').getContext('2d')
         const allDrawtexts = []
         for (let ci = 0; ci < resolved.length; ci++) {
-          const { seg, key, family } = resolved[ci]
-          const lines = wrapText(seg.text || '', family, seg.fontSize || 60, seg.boxWidth ?? 80)
+          const { seg, key, family, dispText } = resolved[ci]
+          const lines = wrapText(dispText, family, seg.fontSize || 60, seg.boxWidth ?? 80)
           const fontSizeExport = Math.round((seg.fontSize || 60) * (W / 1280))
           measCtx.font = `${fontSizeExport}px ${family}`
           const fm = measCtx.measureText('Mg')
