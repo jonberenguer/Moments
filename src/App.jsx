@@ -217,6 +217,7 @@ export default function App() {
           activeTextSegment={store.activeTextSegment}
           onUpdateTextSegment={store.updateTextSegment}
           activeSelection={store.activeSelection}
+          textSegments={store.textSegments}
         />
       </div>
 

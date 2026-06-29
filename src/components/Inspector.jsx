@@ -343,8 +343,18 @@ function ClipPanel({ clip, onUpdate, globalTransition, onGlobalTransitionChange,
   )
 }
 
-function TextPanel({ seg, onUpdate }) {
+function TextPanel({ seg, onUpdate, customFonts = [] }) {
   const fontUploadRef = useRef()
+  // Dropdown value: 'custom:<family>' for custom fonts, else the preset key.
+  const fontValue = seg.fontFile === 'custom' ? `custom:${seg.customFontFamily || ''}` : (seg.fontFile || 'Poppins-Regular')
+  const onFontSelect = (val) => {
+    if (val.startsWith('custom:')) {
+      const cf = customFonts.find(f => `custom:${f.family}` === val)
+      if (cf) onUpdate({ fontFile: 'custom', customFontName: cf.name, customFontFamily: cf.family, customFontData: cf.data.slice() })
+    } else {
+      onUpdate({ fontFile: val, customFontName: null })
+    }
+  }
   const handleFontUpload = (e) => {
     const file=e.target.files?.[0]; if(!file)return
     const r=new FileReader()
@@ -384,9 +394,11 @@ function TextPanel({ seg, onUpdate }) {
         <label className={styles.toggleRow}><span className={styles.toggleLabel}>Outline</span>
           <input type="checkbox" className={styles.toggle} checked={!!seg.outline} onChange={e=>onUpdate({outline:e.target.checked})}/></label>
         <div className={styles.metaRow}><span className={styles.metaKey}>Font</span>
-          <select className={styles.selectSmall} value={seg.fontFile||'Poppins-Regular'} onChange={e=>onUpdate({fontFile:e.target.value,customFontName:null})}>
+          <select className={styles.selectSmall} value={fontValue} onChange={e=>onFontSelect(e.target.value)}>
             {PRESET_FONTS.map(f=><option key={f.key} value={f.key}>{f.label}</option>)}
-            {seg.fontFile==='custom'&&<option value="custom">{seg.customFontName||'Custom'}</option>}
+            {customFonts.length>0 && <optgroup label="Uploaded fonts">
+              {customFonts.map(f=><option key={f.family} value={`custom:${f.family}`}>{f.name}</option>)}
+            </optgroup>}
           </select></div>
         <div className={styles.metaRow}>
           <button className={styles.uploadFontSmall} onClick={()=>fontUploadRef.current?.click()}>Upload font…</button>
@@ -426,9 +438,20 @@ export default function Inspector({
   musicFile, musicVolume, onMusicVolumeChange,
   musicDuration, musicTrimStart, musicTrimEnd, onMusicTrimChange,
   activeTextSegment, onUpdateTextSegment,
-  activeSelection,
+  activeSelection, textSegments = [],
 }) {
   const showType = activeSelection?.type
+  // Custom fonts uploaded on any caption, deduped by family — so a NEW caption
+  // (or any other one) can pick a previously-uploaded font from the dropdown.
+  const customFonts = (() => {
+    const m = new Map()
+    for (const s of textSegments) {
+      if (s.fontFile === 'custom' && s.customFontFamily && s.customFontData?.byteLength > 0 && !m.has(s.customFontFamily)) {
+        m.set(s.customFontFamily, { family: s.customFontFamily, name: s.customFontName || 'Custom', data: s.customFontData })
+      }
+    }
+    return [...m.values()]
+  })()
   if (!showType||(!activeClip&&!activeTextSegment)) {
     return (
       <aside className={styles.panel}>
@@ -453,7 +476,7 @@ export default function Inspector({
           musicDuration={musicDuration} musicTrimStart={musicTrimStart} musicTrimEnd={musicTrimEnd} onMusicTrimChange={onMusicTrimChange}/>
       )}
       {showType==='text'&&activeTextSegment&&(
-        <TextPanel seg={activeTextSegment} onUpdate={changes=>onUpdateTextSegment(activeTextSegment.id,changes)}/>
+        <TextPanel seg={activeTextSegment} customFonts={customFonts} onUpdate={changes=>onUpdateTextSegment(activeTextSegment.id,changes)}/>
       )}
     </aside>
   )

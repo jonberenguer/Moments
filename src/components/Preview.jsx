@@ -283,18 +283,17 @@ export default function Preview({
     }
   }
 
-  const allFontKeys = [...new Set(textSegments.map(s=>s.fontFile||'Poppins-Regular'))]
-  allFontKeys.forEach(k=>{if(k!=='custom')loadPreviewFont(k)})
-
-  // Register EVERY custom font used by any caption (each as its own content-stable
-  // @font-face family), so uploading a font repaints the caption, re-uploading a
-  // different one swaps cleanly, multiple captions can use different custom fonts,
-  // and a font reused across captions resolves to the same family. bumpFonts
-  // forces a re-render once a face finishes loading async.
+  // Load every font a caption uses (presets via @font-face, customs as their own
+  // content-stable FontFace family), then re-render once they're ready so wrapText
+  // re-measures in the real faces — without this the caption keeps the line breaks
+  // (and face) computed before the font finished loading, so selecting a CJK font
+  // appeared to do nothing. bumpFonts triggers that re-render.
   const [, bumpFonts] = useState(0)
   useEffect(() => {
     for (const s of textSegments) {
-      if (s.fontFile !== 'custom' || !s.customFontFamily) continue
+      const k = s.fontFile || 'Poppins-Regular'
+      if (k !== 'custom') { loadPreviewFont(k); continue }
+      if (!s.customFontFamily) continue
       const data = s.customFontData
       if (!data || data.byteLength === 0) continue          // missing/detached → skip
       if (_loadedCustomFonts.has(s.customFontFamily)) continue
@@ -305,6 +304,9 @@ export default function Preview({
           .catch(() => { _loadedCustomFonts.delete(s.customFontFamily) })
       } catch { _loadedCustomFonts.delete(s.customFontFamily) }
     }
+    let cancelled = false
+    document.fonts.ready.then(() => { if (!cancelled) bumpFonts(v => v + 1) }).catch(() => {})
+    return () => { cancelled = true }
   }, [textSegments])
   // Resolve a caption's render font + the family used to MEASURE wrapping. The
   // SELECTED font is always honored (no silent CJK substitution) — characters it
