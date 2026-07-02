@@ -170,6 +170,13 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
   (needs a display / Windows runner — see the checklist).** M1–M6 all `wails build`
   green in-container.
 
+- **2026-07-02 (10)** — **WebKitGTK 4.1 fix.** Default `wails build` links 4.0,
+  which Debian 13 / Ubuntu 24.04 dropped (only 4.1 ships). Build with
+  `wails build -tags webkit2_41` → links `libwebkit2gtk-4.1.so.0`. CI `build-linux`
+  switched to ubuntu-24.04 + `libwebkit2gtk-4.1-dev` + the tag. Runtime deps on
+  Debian 13: `libwebkit2gtk-4.1-0 libgtk-3-0t64`. (Windows/WebView2 unaffected.)
+  Local/dev builds should also pass `-tags webkit2_41` for modern distros.
+
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is
   needed.

@@ -20,7 +20,10 @@ env:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-22.04 # 22.04 ships libwebkit2gtk-4.0-dev (default wails build)
+    # 24.04 ships WebKitGTK 4.1 (libwebkit2gtk-4.1-dev). We link 4.1 (via the
+    # webkit2_41 build tag) because Debian 13 / Ubuntu 24.04+ dropped the 4.0
+    # runtime — a 4.0-linked binary won't start there.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -29,16 +32,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Install WebKitGTK + GTK dev libs
+      - name: Install WebKitGTK 4.1 + GTK dev libs
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
       - name: Set up FFmpeg binary
         run: node scripts/download-ffmpeg.js linux
-      - name: Build
-        run: wails build -platform linux/amd64
+      - name: Build (link WebKitGTK 4.1)
+        run: wails build -tags webkit2_41 -platform linux/amd64
       - name: Stage binary + external resources (ffmpeg + fonts)
         run: |
           mkdir -p dist-wails/ffmpeg/fonts

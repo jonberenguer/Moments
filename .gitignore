@@ -18,3 +18,4 @@ bin/win/ffmpeg.exe
 
 *.log
 .DS_Store
+dist-test/
