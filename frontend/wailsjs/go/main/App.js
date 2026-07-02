@@ -42,6 +42,10 @@ export function GetPrefs(arg1) {
   return window['go']['main']['App']['GetPrefs'](arg1);
 }
 
+export function MediaBase() {
+  return window['go']['main']['App']['MediaBase']();
+}
+
 export function Mkdtemp(arg1) {
   return window['go']['main']['App']['Mkdtemp'](arg1);
 }

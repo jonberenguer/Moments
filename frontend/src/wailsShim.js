@@ -89,4 +89,9 @@ if (!window.electronAPI && (window.runtime || window.go)) {
 
   // Refine platform with the authoritative backend value once reachable.
   call('Platform').then((p) => { if (p) api.platform = p }).catch(() => {})
+
+  // Loopback media server base (http://127.0.0.1:port). Media element src is
+  // <base>/media/<b64url(path)> — required so GStreamer can fetch <video> on
+  // WebKitGTK. Resolves within ms of startup, long before any import builds a URL.
+  call('MediaBase').then((b) => { if (b) window.__MOMENTS_MEDIA_BASE = b }).catch(() => {})
 }

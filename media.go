@@ -3,11 +3,36 @@ package main
 import (
 	"encoding/base64"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// startMediaServer runs the media handler on a loopback HTTP server and returns
+// its base URL (e.g. http://127.0.0.1:54321), or "" on failure.
+//
+// WHY a real HTTP server (not the Wails AssetServer custom scheme): on Linux,
+// WebKitGTK plays <video>/<audio> through GStreamer's playbin, which fetches the
+// URI with its OWN source elements and has NO source for the wails:// custom
+// scheme → the media element fails with MEDIA_ERR_SRC_NOT_SUPPORTED (code 4).
+// (<img> works because WebKit's own loader honors the scheme.) Serving media over
+// http://127.0.0.1 gives GStreamer a URI it can fetch. 127.0.0.1 is a
+// "potentially trustworthy" origin, so it's not blocked as mixed content from the
+// secure wails:// page. Works on Windows/WebView2 too.
+func startMediaServer() string {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		log.Printf("[media] loopback server listen failed: %v", err)
+		return ""
+	}
+	srv := &http.Server{Handler: mediaHandler()}
+	go func() { _ = srv.Serve(ln) }()
+	base := "http://" + ln.Addr().String()
+	log.Printf("[media] loopback server on %s", base)
+	return base
+}
 
 // Explicit content types so rendering never depends on the OS mime table
 // (Go's builtin table lacks .mp4/.mov/etc, and a minimal system may have no
@@ -35,6 +60,10 @@ func mediaHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/media/", func(w http.ResponseWriter, r *http.Request) {
+		// Media is served from a loopback origin distinct from the app origin;
+		// allow cross-origin media loads (display only — pixels are never read
+		// back into a canvas, and export reads the file by path).
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		log.Printf("[media] request: %s", r.URL.Path)
 		enc := strings.TrimPrefix(r.URL.Path, "/media/")
 		raw, err := base64.RawURLEncoding.DecodeString(enc)

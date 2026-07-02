@@ -19,14 +19,22 @@ type App struct {
 	ctx        context.Context
 	forceClose bool     // set by ForceClose() so onBeforeClose lets the window go
 	gpuCache   *GPUCaps // detectGPU result, cached per session
+	mediaBase  string   // loopback media server base URL (http://127.0.0.1:port)
 
 	watchdogMu    sync.Mutex
 	closeWatchdog *time.Timer // force-closes if the renderer never acks (wedged)
 }
 
-// NewApp creates a new App application struct.
-func NewApp() *App {
-	return &App{}
+// NewApp creates a new App application struct. mediaBase is the loopback media
+// server URL the frontend prefixes onto media paths (see media.go / wailsShim).
+func NewApp(mediaBase string) *App {
+	return &App{mediaBase: mediaBase}
+}
+
+// MediaBase returns the loopback media server base URL (http://127.0.0.1:port).
+// The frontend builds media element src as <MediaBase>/media/<base64url(path)>.
+func (a *App) MediaBase() string {
+	return a.mediaBase
 }
 
 // startup stores the runtime context for later runtime calls (events, dialogs)

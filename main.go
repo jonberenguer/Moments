@@ -15,7 +15,9 @@ import (
 var assets embed.FS
 
 func main() {
-	app := NewApp()
+	// Loopback HTTP media server — required for <video> on Linux/WebKitGTK (see
+	// media.go). Its base URL is handed to the frontend via App.MediaBase().
+	app := NewApp(startMediaServer())
 
 	err := wails.Run(&options.App{
 		Title:  "Moments",
@@ -23,8 +25,8 @@ func main() {
 		Height: 800,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
-			// Serves imported media off disk at /media?p=<abs> with Range support
-			// (the media:// replacement — see media.go).
+			// Kept as an <img> fallback (wails:// scheme). Video must use the
+			// loopback http server (GStreamer can't fetch the custom scheme).
 			Handler: mediaHandler(),
 		},
 		MinWidth:         1100,

@@ -22,6 +22,8 @@ export function ForceClose():Promise<void>;
 
 export function GetPrefs(arg1:string):Promise<any>;
 
+export function MediaBase():Promise<string>;
+
 export function Mkdtemp(arg1:string):Promise<string>;
 
 export function OpenFilesDialog(arg1:string):Promise<Array<main.MediaEntry>>;

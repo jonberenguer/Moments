@@ -16,7 +16,11 @@ const isAcceptable = entry => { const e = extOf(entry?.name); return IMAGE_EXTS.
 const b64urlUtf8 = str =>
   btoa(String.fromCharCode(...new TextEncoder().encode(str)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-const mediaUrlFor = absPath => '/media/' + b64urlUtf8(absPath)
+// Prefer the loopback media server (http://127.0.0.1:port) so <video> works on
+// WebKitGTK (GStreamer can't fetch the wails:// custom scheme). Falls back to the
+// origin-relative AssetServer route (images only) until the base resolves.
+const mediaUrlFor = absPath =>
+  (window.__MOMENTS_MEDIA_BASE || '') + '/media/' + b64urlUtf8(absPath)
 
 // Normalize an import entry into common media fields. A path descriptor
 // ({ name, path } from the native dialog or webUtils.getPathForFile) is served via
