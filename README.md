@@ -16,6 +16,14 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 **Platforms:** Linux (x64) · Windows (x64)  
 **GPU priority:** NVIDIA NVENC → AMD AMF → Intel Quick Sync (iGPU) → CPU (libx264)
 
+> [!NOTE]
+> **Migrating to Wails (Go).** The app is moving from Electron to **Wails v2**
+> (Go backend + native webview) on branch `migrated-to-wails`, reusing this React
+> frontend (now under `frontend/`). Build with `wails build` (toolchain in the root
+> `Dockerfile`). The frozen Electron version lives in `electron-app-legacy/`. See
+> [`WAILS_MIGRATION_PLAN.md`](WAILS_MIGRATION_PLAN.md) and
+> [`docs/wails-qa-checklist.md`](docs/wails-qa-checklist.md).
+
 ---
 
 ## Features

@@ -30,6 +30,28 @@ Every repository where Claude generates the source code **must** include the fol
 
 ---
 
+## ⚠️ MIGRATION IN PROGRESS — Electron → Wails (Go)
+
+As of 2026-07-02 the app is being migrated from Electron to **Wails v2 (Go
+backend + OS-native webview)** on branch `migrated-to-wails`. **The React/Vite
+frontend is reused** (now under `frontend/`); the Electron main/preload layer was
+rewritten in Go. See **`WAILS_MIGRATION_PLAN.md`** (living tracker, M0–M7) and
+**`docs/wails-qa-checklist.md`**.
+
+- The original Electron implementation is frozen under **`electron-app-legacy/`**
+  (this document's Electron details still describe it accurately, and remain the
+  behavioral spec the Go port mirrors).
+- **Old → new mapping:** `electron/main.js` → Go (`app.go`, `fs.go`, `prefs.go`,
+  `dialogs.go`, `ffmpeg.go`, `encoders.go`, `export.go`, `media.go`,
+  `resources.go`); `preload.js` `window.electronAPI` → `frontend/src/wailsShim.js`
+  over Wails bindings; `media://` protocol → AssetServer `/media?p=<abs>` handler
+  (`http.ServeContent` Range); drag-drop `webUtils` → Wails `OnFileDrop`. FFmpeg
+  arg-building stays in JS (`useFFmpeg.js`); Go only resolves tokens + spawns.
+- Status: M1–M5 done; M6 (packaging) config done (Windows NSIS builds on CI);
+  M7 = runtime QA on a real display (see the checklist).
+
+---
+
 ## Project Overview
 
 **Moments** is a cross-platform desktop photo & video slideshow editor built with Electron. Users import media, arrange clips on a timeline, apply transitions and text overlays, and export a finished MP4. Video encoding runs via a **native FFmpeg child process** with GPU acceleration — replacing the original browser-based WebAssembly engine entirely.

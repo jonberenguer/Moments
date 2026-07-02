@@ -115,7 +115,15 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       wails-build.yml` (Linux tarball + Windows NSIS + release on v*); legacy electron
       `build.yml` → `electron-app-legacy/`. PENDING: real Windows installer build (CI),
       optional AppImage, fonts de-dupe (still embedded in the web bundle too).
-- [ ] **M7 — QA parity pass** against the Electron feature list (CLAUDE.md).
+- [~] **M7 — QA parity pass:** in-scope work DONE (gap review + docs). Gap review:
+      all 25 `electronAPI` methods the frontend uses are covered by the shim (no
+      missing/mismatched bindings); `getPrefs`/`setPrefs`/`resourcesPath` are unused
+      parity extras. Docs: `docs/wails-qa-checklist.md` (the runtime checklist),
+      CLAUDE.md migration banner + old→new mapping, README note. **REMAINING (needs a
+      display / Windows CI — yours):** the runtime parity pass (Spike C preview↔export
+      on WebKitGTK, Spike A seek, export on each encoder, workflows, close/single-
+      instance) + running the CI to build & smoke-test the NSIS installer. See the
+      checklist. Optional cleanup: fonts de-dupe, AppImage, prune browser fallback.
 
 ## Status log
 - **2026-07-02 (1)** — Branch created. Restructure: Electron artifacts →
@@ -154,11 +162,13 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
 - **2026-07-02 (8)** — **M6 config done.** `resources.go` dev+packaged resolution;
   per-user NSIS template + ffmpeg/fonts bundling; `wails.json` info + Moments
   appicon; `wails-build.yml` CI (Linux tarball + Windows NSIS); legacy electron CI
-  moved to `electron-app-legacy/`. Linux build green in-container; Windows installer
-  builds on CI (can't cross-compile Windows CGO from Linux). **Next: M7** — QA parity
-  pass: run the app on a real display (Linux + Windows), exercise the full Electron
-  feature list, run the CI to produce the NSIS installer, then prune remaining
-  electron deps/refs. Also optional: fonts de-dupe, AppImage.
+  moved to `electron-app-legacy/`. (commit `4291f30`)
+- **2026-07-02 (9)** — **M7 in-scope done** (docs/review; no code changes). Gap
+  review passed (shim covers all 25 used `electronAPI` methods). Added
+  `docs/wails-qa-checklist.md`, CLAUDE.md migration banner + mapping, README note.
+  **Migration code-complete through M6; remaining = runtime QA + CI installer build
+  (needs a display / Windows runner — see the checklist).** M1–M6 all `wails build`
+  green in-container.
 
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is
