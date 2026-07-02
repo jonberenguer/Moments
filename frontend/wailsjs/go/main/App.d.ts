@@ -42,6 +42,6 @@ export function SaveFileDialog(arg1:string,arg2:Array<main.FileFilterInput>):Pro
 
 export function SetPrefs(arg1:string,arg2:any):Promise<boolean>;
 
-export function StartExport(arg1:Record<string, any>):Promise<Record<string, any>>;
+export function StartExport(arg1:main.ExportPayload):Promise<Record<string, any>>;
 
 export function WriteFile(arg1:string,arg2:string):Promise<void>;

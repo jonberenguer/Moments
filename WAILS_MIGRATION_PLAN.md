@@ -85,8 +85,18 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       `onFileDrop` → `App.jsx` adds to library. Confirmed no double-import: no
       frontend handler reads `dataTransfer.files` (all DnD is internal ID-based), so
       OS-file drop is new capability, internal library→timeline DnD unaffected.
-- [ ] **M4 — Export pipeline wiring:** JS builds args; Go executes, streams
-      logs/progress; temp-dir lifecycle; per-font temp writes.
+- [x] **M4 — Export pipeline wiring:** DONE (`wails build` green; runtime QA — an
+      actual export → valid MP4 — needs a display + the ffmpeg binary). `encoders.go`
+      (resolveEncoder + encoderQualityArgs + encoderIntermediateArgs, faithful ports),
+      `export.go` (`StartExport`: token resolution incl. `-hwaccel cuda` before first
+      `-i`, per-step spawn, `ffmpeg:log`/`stepStart`/`stepDone`/`encoderInfo` events,
+      `\r`/`\n` split so `time=` progress streams, fallback-on-fail, cancellation via
+      `activeExports` + `CancelExport`; temp-dir stays renderer-owned — never deleted
+      here). `ffmpeg.go` `DetectGPU` now runs the HW smoke-tests + sets
+      `NvencNeedsCuda`. `killAllExports()` defined (wired to close in M5). JS
+      arg-building (`useFFmpeg.js`) untouched; single-final-pass swap stays
+      renderer-side. **Refinement (later):** result preview uses `readFile` (base64
+      of the whole output over the bridge) — could switch to `/media?p=<tmpOutput>`.
 - [ ] **M5 — Window/chrome:** frameless + titlebar drag; close-confirm via
       `OnBeforeClose` (maps to the v1.5.6 close-watchdog); single-instance lock.
 - [ ] **M6 — Packaging parity:** Windows per-user NSIS + upgrade-in-place; Linux
@@ -121,6 +131,12 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
   owns temp-dir lifecycle; port the DetectGPU HW smoke-tests. Reference:
   `electron-app-legacy/electron/main.js` lines ~107-350 (detect+smoke) & 477-607
   (export loop).
+- **2026-07-02 (6)** — **M4 done.** `encoders.go` + `export.go` + expanded
+  `ffmpeg.go` (smoke-tests). Full export loop ported (tokens, streaming, fallback,
+  cancel); `useFFmpeg.js` unchanged. `wails build` green. Runtime QA pending (real
+  export → MP4). **Next: M5** — window/chrome: frameless + titlebar drag (Wails
+  draggable, replacing `-webkit-app-region`), wire `killAllExports()` into
+  `ForceClose`/quit + a close watchdog (mirror the v1.5.6 fix), single-instance lock.
 
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is
