@@ -104,8 +104,17 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       `onBeforeClose` emits `app:confirm-close` + arms a 4s watchdog; `ConfirmCloseAck`
       clears it; `ForceClose`/`OnShutdown` call `killAllExports()` + quit.
       `SingleInstanceLock` (UniqueId `com.moments.app`) focuses the existing window.
-- [ ] **M6 — Packaging parity:** Windows per-user NSIS + upgrade-in-place; Linux
-      (AppImage/deb); bundle FFmpeg + fonts; CI (`.github/workflows`).
+- [x] **M6 — Packaging parity:** CONFIG DONE (Linux build green in-container; the
+      actual Windows installer builds on CI — Windows CGO can't cross-compile from
+      Linux). `resources.go` resolves dev+packaged ffmpeg/fonts layout
+      (`<install>/ffmpeg/{ffmpeg.exe,fonts/}`). NSIS template
+      (`build/windows/installer/project.nsi`) = per-user (`REQUEST_EXECUTION_LEVEL
+      user`, `$LOCALAPPDATA\Programs\Moments`, upgrade-in-place, prefs preserved) +
+      bundles ffmpeg.exe + fonts into `$INSTDIR\ffmpeg`. `wails.json` product info
+      (v1.5.6); `build/appicon.png` = Moments icon. CI `.github/workflows/
+      wails-build.yml` (Linux tarball + Windows NSIS + release on v*); legacy electron
+      `build.yml` → `electron-app-legacy/`. PENDING: real Windows installer build (CI),
+      optional AppImage, fonts de-dupe (still embedded in the web bundle too).
 - [ ] **M7 — QA parity pass** against the Electron feature list (CLAUDE.md).
 
 ## Status log
@@ -140,12 +149,16 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
   `ffmpeg.go` (smoke-tests). Full export loop ported (tokens, streaming, fallback,
   cancel); `useFFmpeg.js` unchanged. `wails build` green. (commit `bcb9bf9`)
 - **2026-07-02 (7)** — **M5 done.** Native frame (all platforms) + MinW/H; Topbar
-  custom-titlebar gated off (shim `customTitleBar:false`); close watchdog + kill
-  exports on ForceClose/OnShutdown/watchdog-timeout; SingleInstanceLock. `wails
-  build` green. **Next: M6** — packaging parity: Win per-user NSIS + upgrade-in-place
-  (Wails NSIS `nsisType:"perUser"` / custom template), Linux target, **externalize
-  the ~77 MB fonts + ffmpeg from the embedded bundle** (finalize `resourcesBase`/
-  `fontsDir`/`ffmpegPath` for packaged layout), CI. Then M7 QA.
+  custom-titlebar gated off; close watchdog + kill exports; SingleInstanceLock.
+  `wails build` green. (commit `86dfb3e`)
+- **2026-07-02 (8)** — **M6 config done.** `resources.go` dev+packaged resolution;
+  per-user NSIS template + ffmpeg/fonts bundling; `wails.json` info + Moments
+  appicon; `wails-build.yml` CI (Linux tarball + Windows NSIS); legacy electron CI
+  moved to `electron-app-legacy/`. Linux build green in-container; Windows installer
+  builds on CI (can't cross-compile Windows CGO from Linux). **Next: M7** — QA parity
+  pass: run the app on a real display (Linux + Windows), exercise the full Electron
+  feature list, run the CI to produce the NSIS installer, then prune remaining
+  electron deps/refs. Also optional: fonts de-dupe, AppImage.
 
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is

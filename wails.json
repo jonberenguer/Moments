@@ -9,5 +9,12 @@
   "author": {
     "name": "Moments",
     "email": "testdev@localhost.localdomain"
+  },
+  "info": {
+    "companyName": "Moments",
+    "productName": "Moments",
+    "productVersion": "1.5.6",
+    "copyright": "Moments",
+    "comments": "Photo & video slideshow editor with GPU-accelerated export"
   }
 }

@@ -32,6 +32,15 @@ Unicode true
 ####
 ## Include the wails tools
 ####
+
+## ── Moments: per-user installer (no admin / UAC), matches the Electron NSIS ──
+## perMachine:false → installs to %LOCALAPPDATA%; upgrades in place (fixed
+## InstallDir + per-user uninstall key); prefs in %APPDATA%\moments-app are
+## preserved (uninstall only removes $INSTDIR). See CLAUDE.md "Windows target".
+!define INFO_COMPANYNAME       "Moments"
+!define INFO_PRODUCTNAME       "Moments"
+!define REQUEST_EXECUTION_LEVEL "user"
+
 !include "wails_tools.nsh"
 
 # The version information for this two must consist of 4 parts
@@ -72,7 +81,7 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
+InstallDir "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}" # Per-user install (no admin), matches the Electron %LOCALAPPDATA%\Programs\moments-app location.
 ShowInstDetails show # This will always show the installation details.
 
 Function .onInit
@@ -87,6 +96,17 @@ Section
     SetOutPath $INSTDIR
 
     !insertmacro wails.files
+
+    # ── Moments: bundle the FFmpeg binary + drawtext fonts next to the app ──
+    # Go resolves these at <INSTDIR>\ffmpeg\{ffmpeg.exe,fonts\} (see resources.go).
+    # Paths are relative to this .nsi (build\windows\installer → repo root = ..\..\..).
+    SetOutPath "$INSTDIR\ffmpeg"
+    File "..\..\..\bin\win\ffmpeg.exe"
+    SetOutPath "$INSTDIR\ffmpeg\fonts"
+    File /nonfatal "..\..\..\frontend\public\ffmpeg\fonts\*.ttf"
+    File /nonfatal "..\..\..\frontend\public\ffmpeg\fonts\*.otf"
+    File /nonfatal "..\..\..\frontend\public\ffmpeg\fonts\*.ttc"
+    SetOutPath $INSTDIR
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"

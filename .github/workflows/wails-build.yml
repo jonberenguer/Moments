@@ -1,0 +1,98 @@
+name: Build Moments (Wails)
+
+# Builds the Wails app: a Linux binary bundle (ubuntu) and the per-user Windows
+# NSIS installer (windows-latest — native, so makensis + uninstaller work). The
+# NSIS template bundles bin/win/ffmpeg.exe + the drawtext fonts next to the app
+# (see build/windows/installer/project.nsi). Releases on v* tags.
+#
+# NOTE: not yet run — created during the Wails migration (M6). GH_TOKEN is a
+# workflow-level env for the release step; the FFmpeg download uses direct
+# release-asset URLs (no token).
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  WAILS_VERSION: v2.12.0
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04 # 22.04 ships libwebkit2gtk-4.0-dev (default wails build)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install WebKitGTK + GTK dev libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Set up FFmpeg binary
+        run: node scripts/download-ffmpeg.js linux
+      - name: Build
+        run: wails build -platform linux/amd64
+      - name: Stage binary + external resources (ffmpeg + fonts)
+        run: |
+          mkdir -p dist-wails/ffmpeg/fonts
+          cp build/bin/Moments dist-wails/
+          cp bin/linux/ffmpeg dist-wails/ffmpeg/ffmpeg
+          cp frontend/public/ffmpeg/fonts/*.ttf frontend/public/ffmpeg/fonts/*.otf frontend/public/ffmpeg/fonts/*.ttc dist-wails/ffmpeg/fonts/ 2>/dev/null || true
+          tar czf Moments-linux-amd64.tar.gz -C dist-wails .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moments-linux
+          path: Moments-linux-amd64.tar.gz
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install NSIS
+        run: choco install nsis -y
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+      - name: Set up FFmpeg binary
+        run: node scripts/download-ffmpeg.js win
+      - name: Build per-user NSIS installer
+        # The project.nsi File directives pull bin/win/ffmpeg.exe + fonts from the
+        # checkout, so they must exist before this step (they do: committed fonts +
+        # downloaded ffmpeg).
+        run: wails build -platform windows/amd64 -nsis
+      - uses: actions/upload-artifact@v4
+        with:
+          name: moments-windows
+          path: build/bin/*-installer.exe
+          if-no-files-found: error
+
+  release:
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/moments-linux/*.tar.gz
+            artifacts/moments-windows/*.exe
+          generate_release_notes: true
