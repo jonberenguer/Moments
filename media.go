@@ -25,6 +25,7 @@ func mediaHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/media/", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("[media] request: %s", r.URL.Path)
 		enc := strings.TrimPrefix(r.URL.Path, "/media/")
 		raw, err := base64.RawURLEncoding.DecodeString(enc)
 		if err != nil {
@@ -39,6 +40,7 @@ func mediaHandler() http.Handler {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		log.Printf("[media] serving: %s (%d bytes)", abs, fi.Size())
 		f, err := os.Open(abs)
 		if err != nil {
 			log.Printf("[media] open failed: %q: %v", abs, err)

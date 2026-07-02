@@ -1,5 +1,5 @@
 .panel {
-  width: 210px; flex-shrink: 0;
+  width: 260px; flex-shrink: 0;
   background: var(--bg1); border-left: 1px solid var(--border);
   overflow-y: auto; display: flex; flex-direction: column;
 }

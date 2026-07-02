@@ -21,6 +21,11 @@
   --green: #6ae8a0;
   --radius: 8px;
   --radius-lg: 12px;
+
+  /* Tell the webview to render native form controls (select popups, scrollbars,
+     etc.) in dark mode so the dropdown list matches the theme instead of
+     defaulting to a light popup on first open (WebKitGTK / WebView2). */
+  color-scheme: dark;
 }
 
 html, body, #root {
@@ -35,6 +40,10 @@ html, body, #root {
 
 button { font-family: inherit; cursor: pointer; border: none; outline: none; background: none; }
 input, select, textarea { font-family: inherit; outline: none; }
+/* Dark dropdowns — the closed control and its option list. color-scheme above
+   handles the native popup; these keep the control itself on-theme. */
+select { background-color: var(--bg3); color: var(--text0); }
+select option { background-color: var(--bg3); color: var(--text0); }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
