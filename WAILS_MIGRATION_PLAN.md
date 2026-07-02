@@ -76,8 +76,15 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       globals; installed in `main.jsx` before render. All 22 methods bound; `wails
       build` green. Deferred: DetectGPU HW smoke-tests + full export → M4;
       `pathForFile`/drag-drop → M3.
-- [ ] **M3 — media:// equivalent** (AssetServer Range handler) + drag-drop/
-      `pathForFile` real paths.
+- [x] **M3 — media serving + drag-drop:** DONE (`wails build` green; **Spike A**
+      seek + drop-import need runtime QA on a display). `media.go` = AssetServer
+      fallback handler serving `/media?p=<abs>` via `http.ServeContent` (native
+      Range → video seeking). `mediaUrlFor` in `useMediaStore.js` now emits
+      `/media?p=…` (was `media://m/…`). OS drag-drop: `OnFileDrop` (main.go
+      `DragAndDrop.EnableFileDrop`) → filter to media → emit `files:dropped` → shim
+      `onFileDrop` → `App.jsx` adds to library. Confirmed no double-import: no
+      frontend handler reads `dataTransfer.files` (all DnD is internal ID-based), so
+      OS-file drop is new capability, internal library→timeline DnD unaffected.
 - [ ] **M4 — Export pipeline wiring:** JS builds args; Go executes, streams
       logs/progress; temp-dir lifecycle; per-font temp writes.
 - [ ] **M5 — Window/chrome:** frameless + titlebar drag; close-confirm via
@@ -102,10 +109,18 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
 - **2026-07-02 (4)** — **M2 done.** Go backend (`prefs`/`fs`/`dialogs`/`ffmpeg`/
   `app`/`resources`.go) + `frontend/src/wailsShim.js` reconstructing
   `window.electronAPI` over `window.go`/`window.runtime`; wired in `main.jsx` before
-  render. All 22 methods bound, `wails build` green. Runtime QA (dialogs open, prefs
-  persist, media render) pending a display. **Next: M3** (media:// AssetServer Range
-  handler + OnFileDrop drag-drop paths) — the two things that make imported media
-  actually render/seek under Wails.
+  render. All 22 methods bound, `wails build` green. (commit `7f2a4ec`)
+- **2026-07-02 (5)** — **M3 done.** `media.go` AssetServer handler (`/media?p=<abs>`,
+  `http.ServeContent` Range); `mediaUrlFor`→`/media?p=…`; `OnFileDrop`→`files:dropped`
+  →shim `onFileDrop`→`App.jsx` library import (`DragAndDrop.EnableFileDrop`). No
+  double-import (no `dataTransfer.files` handler exists). `wails build` green. Runtime
+  QA pending a display (Spike A seek, drop-import). **Next: M4** — export pipeline
+  wiring: JS builds the arg arrays (`useFFmpeg.js`, unchanged), Go `StartExport`
+  resolves the encoder tokens (`__ENCODER__`/`__ENC_ARGS__`/`__ENC_ARGS_HQ__`),
+  spawns FFmpeg, streams `ffmpeg:log`/`stepStart`/`stepDone`/`encoderInfo` events,
+  owns temp-dir lifecycle; port the DetectGPU HW smoke-tests. Reference:
+  `electron-app-legacy/electron/main.js` lines ~107-350 (detect+smoke) & 477-607
+  (export loop).
 
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is

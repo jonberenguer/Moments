@@ -23,12 +23,16 @@ func main() {
 		Height: 800,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
-			// M3 will attach a custom Handler here to serve imported media off
-			// disk with HTTP Range support (the media:// replacement).
+			// Serves imported media off disk at /media?p=<abs> with Range support
+			// (the media:// replacement — see media.go).
+			Handler: mediaHandler(),
 		},
 		BackgroundColour: &options.RGBA{R: 18, G: 18, B: 18, A: 1},
 		OnStartup:        app.startup,
 		OnBeforeClose:    app.onBeforeClose,
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop: true, // deliver OS file-drop paths to OnFileDrop
+		},
 		Bind: []interface{}{
 			app,
 		},

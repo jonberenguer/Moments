@@ -31,6 +31,36 @@ var videoExts = map[string]bool{
 	"mp4": true, "mov": true, "webm": true, "avi": true, "mkv": true, "m4v": true,
 }
 
+var imageExts = map[string]bool{
+	"jpg": true, "jpeg": true, "png": true, "gif": true,
+	"webp": true, "heic": true, "avif": true,
+}
+
+func extOf(p string) string {
+	return strings.TrimPrefix(strings.ToLower(filepath.Ext(p)), ".")
+}
+
+// isAcceptableMedia reports whether a path is an importable image/video (used to
+// filter OS file drops).
+func isAcceptableMedia(p string) bool {
+	e := extOf(p)
+	return imageExts[e] || videoExts[e]
+}
+
+// entryFor builds a path descriptor for a media file (no bytes).
+func entryFor(fp string) MediaEntry {
+	var size int64
+	if fi, err := os.Stat(fp); err == nil {
+		size = fi.Size()
+	}
+	return MediaEntry{
+		Name: filepath.Base(fp),
+		Path: fp,
+		Mime: mimeFor(extOf(fp)),
+		Size: size,
+	}
+}
+
 func mimeFor(ext string) string {
 	ext = strings.ToLower(ext)
 	if videoExts[ext] {
@@ -81,17 +111,7 @@ func (a *App) OpenFilesDialog(accept string) ([]MediaEntry, error) {
 
 	out := make([]MediaEntry, 0, len(paths))
 	for _, fp := range paths {
-		ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(fp)), ".")
-		var size int64
-		if fi, err := os.Stat(fp); err == nil {
-			size = fi.Size()
-		}
-		out = append(out, MediaEntry{
-			Name: filepath.Base(fp),
-			Path: fp,
-			Mime: mimeFor(ext),
-			Size: size,
-		})
+		out = append(out, entryFor(fp))
 	}
 	return out, nil
 }

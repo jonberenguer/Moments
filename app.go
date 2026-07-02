@@ -23,9 +23,27 @@ func NewApp() *App {
 	return &App{}
 }
 
-// startup stores the runtime context for later runtime calls (events, dialogs).
+// startup stores the runtime context for later runtime calls (events, dialogs)
+// and registers the native OS file-drop handler.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// Native OS file drops (HTML drag-drop of OS files can't expose paths in a
+	// webview). Wails delivers the real paths here; we filter to media and emit
+	// them to the frontend as import entries (same shape as OpenFilesDialog), so
+	// the store adds them to the library. Internal library→timeline DnD is DOM
+	// drag-drop and is unaffected.
+	wruntime.OnFileDrop(ctx, func(x, y int, paths []string) {
+		entries := make([]MediaEntry, 0, len(paths))
+		for _, p := range paths {
+			if isAcceptableMedia(p) {
+				entries = append(entries, entryFor(p))
+			}
+		}
+		if len(entries) > 0 {
+			wruntime.EventsEmit(ctx, "files:dropped", entries)
+		}
+	})
 }
 
 // Platform returns an Electron-style platform string so the frontend's existing

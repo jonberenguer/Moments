@@ -38,6 +38,9 @@ export async function installElectronShim() {
     onStepDone: onEvent('ffmpeg:stepDone'),
     onEncoderInfo: onEvent('ffmpeg:encoderInfo'),
 
+    // ── Native OS file drop (Wails OnFileDrop) → import entries ──
+    onFileDrop: onEvent('files:dropped'),
+
     // ── File system ──
     readFile: (p) => go.ReadFile(p),
     writeFile: (p, b64) => go.WriteFile(p, b64),

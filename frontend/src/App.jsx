@@ -49,6 +49,15 @@ export default function App() {
       .catch(() => {})
   }, [])
 
+  // Native OS file drops (Wails OnFileDrop → 'files:dropped' event). HTML
+  // drag-drop of OS files can't expose paths in a webview, so the backend
+  // delivers path descriptors here; add them to the library like the + button.
+  useEffect(() => {
+    return window.electronAPI?.onFileDrop?.(entries => {
+      if (Array.isArray(entries) && entries.length) storeRef.current.addToLibrary(entries)
+    })
+  }, [])
+
   const handleExportOpen = useCallback(() => {
     setShowExport(true)
     setExportState('idle')

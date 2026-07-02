@@ -7,9 +7,12 @@ const VIDEO_EXTS = new Set(['mp4','mov','webm','avi','mkv','m4v'])
 const extOf       = name => (name || '').split('.').pop().toLowerCase()
 const isAcceptable = entry => { const e = extOf(entry?.name); return IMAGE_EXTS.has(e) || VIDEO_EXTS.has(e) }
 
-// URL the renderer uses to render imported media off disk via the media://
-// protocol (electron/main.js) — so file bytes never enter the renderer.
-const mediaUrlFor = absPath => 'media://m/' + encodeURIComponent(absPath)
+// URL the renderer uses to render imported media off disk — so file bytes never
+// enter the renderer. Under Wails this hits the AssetServer fallback handler
+// (media.go) which serves the file with HTTP Range support; the origin-relative
+// path resolves against the app origin (wails://wails.localhost or
+// http://wails.localhost). (Was the Electron media:// custom protocol.)
+const mediaUrlFor = absPath => '/media?p=' + encodeURIComponent(absPath)
 
 // Normalize an import entry into common media fields. A path descriptor
 // ({ name, path } from the native dialog or webUtils.getPathForFile) is served via
