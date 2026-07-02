@@ -1,36 +1,48 @@
 // Wails → Electron compatibility shim.
 //
-// The frontend was written against Electron's window.electronAPI (see the frozen
-// electron-app-legacy/electron/preload.js). Under Wails, the Go backend methods
-// are injected at window.go.main.App.* and the event runtime at window.runtime.
-// This module reconstructs window.electronAPI on top of those globals so the
-// existing call sites keep working unchanged.
+// Reconstructs window.electronAPI (the Electron preload surface, see
+// electron-app-legacy/electron/preload.js) on top of the Wails-injected globals
+// window.go.main.App.* and window.runtime.
 //
-// Uses the injected globals directly (not the generated wailsjs wrappers) to
-// avoid coupling the shim to generated import names.
+// IMPORTANT: this installs window.electronAPI as a **top-level side effect** and
+// MUST be imported before any module that captures `window.electronAPI` at module
+// scope — useFFmpeg.js and MediaPanel.jsx do `const api = window.electronAPI` at
+// import time. So main.jsx imports this first. (The earlier async install ran
+// after those modules had already captured `undefined`, which crashed detectGPU /
+// export.) Backend methods + events are resolved lazily (at call time), so a
+// slightly-late runtime injection still works.
 
-export async function installElectronShim() {
-  const go = window.go?.main?.App
-  const rt = window.runtime
-  if (!go || !rt || window.electronAPI) return false
+const goApp = () => window.go?.main?.App
+const rtime = () => window.runtime
 
-  // Subscribe helper: Wails EventsOn returns its own unsubscribe fn, matching the
-  // Electron cleanup contract (onLog/onConfirmClose return a remover).
-  const onEvent = (name) => (cb) => rt.EventsOn(name, (data) => cb(data))
+function call(method, ...args) {
+  const app = goApp()
+  if (!app || typeof app[method] !== 'function') {
+    return Promise.reject(new Error(`Wails backend method unavailable: ${method}`))
+  }
+  return app[method](...args)
+}
 
-  // platform must be a synchronous value (Topbar reads it during render), so
-  // resolve it once here before the shim is installed / React renders.
-  const platform = await go.Platform()
+const onEvent = (name) => (cb) => {
+  const r = rtime()
+  if (!r?.EventsOn) return () => {}
+  return r.EventsOn(name, (data) => cb(data))
+}
 
-  window.electronAPI = {
+// Only install under Wails (window.runtime / window.go are injected before the app
+// bundle runs). In a plain browser (vite dev without Wails) leave electronAPI
+// undefined so the app uses its browser fallback code paths.
+if (!window.electronAPI && (window.runtime || window.go)) {
+  const ua = navigator.userAgent || ''
+  const api = {
     // ── GPU ──
-    detectGPU: () => go.DetectGPU(),
-    resetGPU: () => go.ResetGPU(),
+    detectGPU: () => call('DetectGPU'),
+    resetGPU: () => call('ResetGPU'),
 
     // ── FFmpeg ──
-    checkFFmpeg: () => go.FFmpegCheck(),
-    startExport: (payload) => go.StartExport(payload),
-    cancelExport: (jobId) => { go.CancelExport(jobId) },
+    checkFFmpeg: () => call('FFmpegCheck'),
+    startExport: (payload) => call('StartExport', payload),
+    cancelExport: (jobId) => { call('CancelExport', jobId) },
 
     // ── Export events ──
     onLog: onEvent('ffmpeg:log'),
@@ -38,46 +50,43 @@ export async function installElectronShim() {
     onStepDone: onEvent('ffmpeg:stepDone'),
     onEncoderInfo: onEvent('ffmpeg:encoderInfo'),
 
-    // ── Native OS file drop (Wails OnFileDrop) → import entries ──
+    // ── Native OS file drop ──
     onFileDrop: onEvent('files:dropped'),
 
     // ── File system ──
-    readFile: (p) => go.ReadFile(p),
-    writeFile: (p, b64) => go.WriteFile(p, b64),
-    copyFile: (s, d) => go.CopyFile(s, d),
-    deleteFile: (p) => go.DeleteFile(p),
-    fileExists: (p) => go.FileExists(p),
-    mkdtemp: (prefix) => go.Mkdtemp(prefix || 'moments_'),
-    rmdir: (p) => go.Rmdir(p),
-    resourcesPath: () => go.ResourcesPath(),
-    fontPath: (fontFile) => go.FontPath(fontFile),
+    readFile: (p) => call('ReadFile', p),
+    writeFile: (p, b64) => call('WriteFile', p, b64),
+    copyFile: (s, d) => call('CopyFile', s, d),
+    deleteFile: (p) => call('DeleteFile', p),
+    fileExists: (p) => call('FileExists', p),
+    mkdtemp: (prefix) => call('Mkdtemp', prefix || 'moments_'),
+    rmdir: (p) => call('Rmdir', p),
+    resourcesPath: () => call('ResourcesPath'),
+    fontPath: (fontFile) => call('FontPath', fontFile),
 
     // ── Dialog / shell ──
-    saveFileDialog: async (opts) => {
-      const p = await go.SaveFileDialog(opts?.defaultName || '', opts?.filters || [])
-      return p || null // Electron returns null on cancel; Go returns ""
-    },
-    openFilesDialog: (opts) => go.OpenFilesDialog(opts?.accept || ''),
-    openPath: (p) => go.OpenPath(p),
-    // No sync File→path in a webview; native drag-drop paths arrive via Wails
-    // OnFileDrop in M3. Until then this returns null → caller keeps the blob File.
-    pathForFile: () => null,
+    saveFileDialog: async (opts) =>
+      (await call('SaveFileDialog', opts?.defaultName || '', opts?.filters || [])) || null,
+    openFilesDialog: (opts) => call('OpenFilesDialog', opts?.accept || ''),
+    openPath: (p) => call('OpenPath', p),
+    pathForFile: () => null, // webviews can't map File→path; OS drops use OnFileDrop
 
     // ── Preferences ──
-    getPrefs: (key) => go.GetPrefs(key ?? ''),
-    setPrefs: (key, value) => go.SetPrefs(key, value),
+    getPrefs: (key) => call('GetPrefs', key ?? ''),
+    setPrefs: (key, value) => call('SetPrefs', key, value),
 
-    // ── Platform info ──
-    platform,
-    isElectron: true, // unused by the app, kept for parity
-    // Wails uses the native OS frame on all platforms (no titleBarOverlay
-    // equivalent), so the Topbar should not act as a custom draggable titlebar.
-    customTitleBar: false,
+    // ── Platform info (sync guess from UA; refined by backend below) ──
+    platform: /Windows/i.test(ua) ? 'win32' : /Mac OS|Macintosh/i.test(ua) ? 'darwin' : 'linux',
+    isElectron: true,
+    customTitleBar: false, // Wails uses the native OS frame on all platforms
 
     // ── Window controls ──
-    forceClose: () => go.ForceClose(),
-    confirmCloseAck: () => go.ConfirmCloseAck(),
+    forceClose: () => call('ForceClose'),
+    confirmCloseAck: () => call('ConfirmCloseAck'),
     onConfirmClose: onEvent('app:confirm-close'),
   }
-  return true
+  window.electronAPI = api
+
+  // Refine platform with the authoritative backend value once reachable.
+  call('Platform').then((p) => { if (p) api.platform = p }).catch(() => {})
 }

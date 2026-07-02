@@ -9,10 +9,14 @@ const isAcceptable = entry => { const e = extOf(entry?.name); return IMAGE_EXTS.
 
 // URL the renderer uses to render imported media off disk — so file bytes never
 // enter the renderer. Under Wails this hits the AssetServer fallback handler
-// (media.go) which serves the file with HTTP Range support; the origin-relative
-// path resolves against the app origin (wails://wails.localhost or
-// http://wails.localhost). (Was the Electron media:// custom protocol.)
-const mediaUrlFor = absPath => '/media?p=' + encodeURIComponent(absPath)
+// (media.go), which serves the file with HTTP Range support. The absolute path is
+// base64url-encoded into a single path segment (robust across the WebView2 and
+// WebKitGTK scheme handlers + net/http path cleaning). (Was the Electron media://
+// custom protocol.)
+const b64urlUtf8 = str =>
+  btoa(String.fromCharCode(...new TextEncoder().encode(str)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+const mediaUrlFor = absPath => '/media/' + b64urlUtf8(absPath)
 
 // Normalize an import entry into common media fields. A path descriptor
 // ({ name, path } from the native dialog or webUtils.getPathForFile) is served via
