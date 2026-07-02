@@ -10,7 +10,7 @@
     "name": "Moments",
     "email": "testdev@localhost.localdomain"
   },
-  "main": "electron/main.js",
+  "main": "electron-app-legacy/electron/main.js",
   "scripts": {
     "dev": "concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite",
@@ -51,7 +51,7 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*",
+      "electron-app-legacy/electron/**/*",
       "public/ffmpeg/fonts/**/*"
     ],
     "extraResources": [

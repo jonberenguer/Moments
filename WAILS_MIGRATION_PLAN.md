@@ -1,0 +1,88 @@
+# Wails (Go) Migration — Plan & Milestone Tracker
+
+> **Branch:** `migrated-to-wails` (off `main` @ v1.5.6). Living doc — update the
+> status boxes as milestones land. Companion to the frozen Electron app in
+> `electron-app-legacy/`.
+>
+> **Ground rules:** all conversion work (Go, `wails` CLI, npm, builds) runs in
+> **Docker**, never on the host. Old Electron artifacts live under
+> `electron-app-legacy/`; the repo root is Wails-focused.
+
+## Goal
+Replace the Electron shell (bundled Chromium + Node main process) with **Wails v2**
+(Go backend + OS-native webview), **reusing the React/Vite frontend**. Wins: far
+smaller binary, lower RAM, native subprocess/file streaming (kills the base64
+round-trips). The frontend is ~80% reusable; the `electron/main.js` + `preload.js`
+layer is a **Go rewrite**.
+
+## Architecture decisions
+- **Keep FFmpeg argument-building in JS** (`src/hooks/useFFmpeg.js`). Go is a *thin
+  exec layer* that resolves the same tokens (`__ENCODER__` / `__ENC_ARGS__` /
+  `__ENC_ARGS_HQ__`), spawns FFmpeg, streams logs + progress, and owns the temp-dir
+  lifecycle. Porting the filter-graph logic to Go is explicitly out of scope (highest
+  regression risk, ~zero benefit).
+- **Compatibility shim:** expose `window.electronAPI` in the frontend backed by Wails
+  Go bindings + events, so existing call sites change minimally. (See the surface in
+  `electron-app-legacy/electron/preload.js`.)
+- **`media://` → Wails AssetServer.** Serve clips off disk via a custom
+  `http.Handler` using `http.ServeContent` (native HTTP Range → `<video>` seeking).
+- **Drag-drop paths:** Wails `OnFileDrop` gives real absolute paths (replaces
+  `webUtils.getPathForFile`).
+
+## ⚠️ Top risks (validate in M0 before committing further)
+1. **Webview engine change (HIGHEST):** Electron = Blink everywhere. Wails =
+   **WebView2** (Chromium) on Windows but **WebKitGTK** on Linux. The caption
+   wrap/baseline (`src/textLayout.js`, canvas `measureText`) and Phase-A transform
+   geometry were **calibrated against Blink** — they must be re-validated on
+   WebKitGTK or the Linux preview↔export parity can drift.
+2. **`media://` Range streaming** must work on *both* WebView2 and WebKitGTK.
+3. `-webkit-app-region: drag` (titlebar) is Electron-specific → Wails draggable
+   mechanism instead.
+4. **Packaging parity** — re-do the v1.5.6 per-user NSIS installer + upgrade-in-place
+   under Wails' NSIS; re-bundle FFmpeg + ~77 MB CJK fonts.
+
+## `window.electronAPI` surface to reproduce (from preload.js)
+GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExport`
+· events: `onLog`, `onStepStart`, `onStepDone`, `onEncoderInfo` · FS: `readFile`,
+`writeFile`, `copyFile`, `deleteFile`, `fileExists`, `mkdtemp`, `rmdir`,
+`resourcesPath`, `fontPath` · dialog/shell: `saveFileDialog`, `openFilesDialog`,
+`openPath`, `pathForFile` · prefs: `getPrefs`, `setPrefs` · platform: `platform`,
+`isElectron` · window: `forceClose`, `confirmCloseAck`, `onConfirmClose`.
+
+## Milestones
+
+- [ ] **M0 — De-risk spikes** (Docker; validate before deeper commitment)
+  - [ ] Spike A: Wails serves a local video via AssetServer handler w/ Range →
+        `<video>` seeks on WebView2 **and** WebKitGTK.
+  - [ ] Spike B: Go spawns FFmpeg, streams `time=` progress to the UI via events.
+  - [ ] Spike C **(highest risk)**: render a caption in **WebKitGTK** and
+        pixel-compare vs the FFmpeg export — re-validate text wrap/baseline parity.
+- [ ] **M1 — Scaffold:** `wails init`; mount the existing Vite/React frontend; UI
+      renders against a stubbed Go backend. Wails toolchain Dockerfile working.
+- [ ] **M2 — Go backend bindings:** port the IPC surface (fs, dialogs, prefs,
+      fontPath, GPU detect, ffmpeg export/cancel) + the `window.electronAPI` JS shim.
+- [ ] **M3 — media:// equivalent** (AssetServer Range handler) + drag-drop/
+      `pathForFile` real paths.
+- [ ] **M4 — Export pipeline wiring:** JS builds args; Go executes, streams
+      logs/progress; temp-dir lifecycle; per-font temp writes.
+- [ ] **M5 — Window/chrome:** frameless + titlebar drag; close-confirm via
+      `OnBeforeClose` (maps to the v1.5.6 close-watchdog); single-instance lock.
+- [ ] **M6 — Packaging parity:** Windows per-user NSIS + upgrade-in-place; Linux
+      (AppImage/deb); bundle FFmpeg + fonts; CI (`.github/workflows`).
+- [ ] **M7 — QA parity pass** against the Electron feature list (CLAUDE.md).
+
+## Status log
+- **2026-07-02** — Branch created. Restructure done: Electron artifacts →
+  `electron-app-legacy/` (`electron/`, `Dockerfile.electron`,
+  `WINDOWS_STABILITY_PLAN.md`); `package.json` `main`/`files` re-pointed. Feasibility
+  + milestones agreed. **Next: M0 spikes** (lead with Spike C) in a Wails toolchain
+  Docker image.
+
+## Open questions
+- Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is
+  needed.
+- Frontend location: keep `src/` at root, or move under Wails' conventional
+  `frontend/`? (Decide at M1 scaffold.)
+- Linux packaging target (AppImage vs deb vs both) under Wails.
+- Windows: keep the exact per-user NSIS behavior — confirm Wails NSIS supports
+  `perMachine:false` + upgrade-in-place via the same app GUID.
