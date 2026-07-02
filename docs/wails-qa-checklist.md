@@ -9,7 +9,7 @@ run on a real Linux desktop with Go+Wails+WebKitGTK, or use the built binary
 `build/bin/Moments`).
 
 ## ⚠️ Linux runtime dependencies (WebKitGTK)
-Unlike Electron (bundled Chromium + codecs), a Wails Linux app uses the system
+Unlike a bundled-Chromium shell (with its own codecs), a Wails Linux app uses the system
 WebKitGTK + GStreamer. Required on the target machine:
 - **WebKitGTK 4.1 + GTK3:** `libwebkit2gtk-4.1-0 libgtk-3-0t64` (Debian 13 names;
   the binary is built with `-tags webkit2_41`).
@@ -23,7 +23,8 @@ WebKitGTK + GStreamer. Required on the target machine:
 
 ## Spike C — preview↔export parity (HIGHEST RISK)
 The caption wrap/baseline + Phase-A transform geometry were calibrated on **Blink**
-(Electron). Wails uses **WebKitGTK on Linux** — re-validate:
+(the calibration harness uses headless Chromium). Wails uses **WebKitGTK on Linux**
+— re-validate:
 - [ ] Add a caption (Latin) → preview position/size matches the exported MP4 frame.
 - [ ] Multi-line wrapped caption → line breaks + alignment match preview vs export.
 - [ ] CJK caption (Noto TC/JP/etc.) renders in preview and export; unsupported

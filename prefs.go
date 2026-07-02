@@ -7,7 +7,7 @@ import (
 )
 
 // Persistent preferences — a flat JSON file in the OS user-config dir, matching
-// the Electron location:
+// the location:
 //   Linux:   ~/.config/moments-app/prefs.json
 //   Windows: %APPDATA%\moments-app\prefs.json
 // (os.UserConfigDir returns ~/.config and %AppData% respectively.)

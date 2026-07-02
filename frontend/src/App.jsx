@@ -44,7 +44,7 @@ export default function App() {
   // Reflect a missing FFmpeg binary in the UI (disables Export with a warning)
   // rather than a blocking native dialog.
   useEffect(() => {
-    window.electronAPI?.checkFFmpeg?.()
+    window.nativeAPI?.checkFFmpeg?.()
       .then(r => { if (r) setFfmpegStatus({ available: !!r.available, path: r.path || null }) })
       .catch(() => {})
   }, [])
@@ -53,7 +53,7 @@ export default function App() {
   // drag-drop of OS files can't expose paths in a webview, so the backend
   // delivers path descriptors here; add them to the library like the + button.
   useEffect(() => {
-    return window.electronAPI?.onFileDrop?.(entries => {
+    return window.nativeAPI?.onFileDrop?.(entries => {
       if (Array.isArray(entries) && entries.length) storeRef.current.addToLibrary(entries)
     })
   }, [])

@@ -7,8 +7,7 @@ import (
 	"strings"
 )
 
-// Faithful Go ports of the encoder helpers from electron-app-legacy/electron/
-// main.js. The frontend (useFFmpeg.js) builds the FFmpeg arg arrays with the
+// Encoder helpers. The frontend (useFFmpeg.js) builds the FFmpeg arg arrays with the
 // tokens __ENCODER__ / __ENC_ARGS__ / __ENC_ARGS_HQ__; StartExport resolves them
 // using resolveEncoder + these two arg builders (see export.go). Keep in lockstep
 // with the CLAUDE.md "Encoder quality args" / "intermediate args" tables.

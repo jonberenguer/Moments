@@ -4,8 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
 
-  // Electron renderer loads from file:// in production;
-  // use relative paths so assets resolve correctly.
+  // Relative asset paths so they resolve under the Wails asset server.
   base: './',
 
   server: {

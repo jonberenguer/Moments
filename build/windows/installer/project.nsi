@@ -33,7 +33,7 @@ Unicode true
 ## Include the wails tools
 ####
 
-## ── Moments: per-user installer (no admin / UAC), matches the Electron NSIS ──
+## ── Moments: per-user installer (no admin / UAC) ──
 ## perMachine:false → installs to %LOCALAPPDATA%; upgrades in place (fixed
 ## InstallDir + per-user uninstall key); prefs in %APPDATA%\moments-app are
 ## preserved (uninstall only removes $INSTDIR). See CLAUDE.md "Windows target".
@@ -81,7 +81,7 @@ ManifestDPIAware true
 
 Name "${INFO_PRODUCTNAME}"
 OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
-InstallDir "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}" # Per-user install (no admin), matches the Electron %LOCALAPPDATA%\Programs\moments-app location.
+InstallDir "$LOCALAPPDATA\Programs\${INFO_PRODUCTNAME}" # Per-user install (no admin), installs under %LOCALAPPDATA%\Programs.
 ShowInstDetails show # This will always show the installation details.
 
 Function .onInit

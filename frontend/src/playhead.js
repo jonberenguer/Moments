@@ -8,7 +8,7 @@ import { useSyncExternalStore } from 'react'
 // subscribe/get external store means only the components that actually read it
 // (the Preview surface and the three thin Timeline playhead lines) re-render.
 //
-// Single-window Electron app → a module singleton is sufficient and avoids
+// Single-window desktop app → a module singleton is sufficient and avoids
 // threading the store through props.
 
 let value = 0

@@ -73,10 +73,10 @@ The app is a **Wails v2** shell: a Go backend + the OS-native webview, with the 
   - `export.go` — the FFmpeg export loop (`StartExport`): token resolution, per-step spawn, progress events, cancellation.
   - `media.go` — the **loopback HTTP media server** (serves imported clips off disk).
   - `resources.go` — dev vs packaged resolution of the ffmpeg binary + fonts.
-- **Frontend device API** (`frontend/src/wailsShim.js`): reconstructs the frontend's `window.electronAPI` object (a name kept from the prior shell so call sites didn't change) on top of the Wails bindings + runtime events. **Installed as a synchronous side-effect, imported first in `frontend/src/main.jsx`** — components capture `const api = window.electronAPI` at module load, so the shim must exist before them.
+- **Frontend device API** (`frontend/src/wailsShim.js`): reconstructs the frontend's `window.nativeAPI` object on top of the Wails bindings + runtime events. **Installed as a synchronous side-effect, imported first in `frontend/src/main.jsx`** — components capture `const api = window.nativeAPI` at module load, so the shim must exist before them.
 - **FFmpeg pipeline stays in JS** (`useFFmpeg.js` builds the arg arrays with the `__ENCODER__` / `__ENC_ARGS__` / `__ENC_ARGS_HQ__` tokens and does the single-final-pass swap); the Go backend resolves the tokens and spawns FFmpeg. This is deliberate — the fragile filter-graph logic is untouched.
 
-The migration from the prior Electron shell is documented in **`WAILS_MIGRATION_PLAN.md`**; runtime QA + Linux runtime dependencies are in **`docs/wails-qa-checklist.md`**. The archived prior implementation lives under `electron-app-legacy/` (retained for reference, not built).
+Architecture notes + the milestone history are in **`WAILS_MIGRATION_PLAN.md`**; runtime QA + Linux runtime dependencies are in **`docs/wails-qa-checklist.md`**.
 
 ### ⚠️ Linux runtime dependencies (WebKitGTK)
 Unlike a bundled-Chromium shell, a Wails Linux app uses the system WebKitGTK + GStreamer, so the target machine needs:
@@ -120,11 +120,10 @@ Moments/
 │   ├── wailsjs/                                   # generated Go bindings + runtime
 │   └── src/
 │       ├── main.jsx  App.jsx  index.css
-│       ├── wailsShim.js                           # reconstructs window.electronAPI over Wails bindings
+│       ├── wailsShim.js                           # reconstructs window.nativeAPI over Wails bindings
 │       ├── textLayout.js  fontCoverage.js
 │       ├── hooks/  components/                     # (see below)
 │       └── public/ → ffmpeg/fonts, icon.png, app-info.json
-├── electron-app-legacy/                           # archived prior shell (reference only)
 ├── scripts/                                       # dev helpers (download-ffmpeg.js, download-fonts.js)
 └── bin/  linux/ffmpeg · win/ffmpeg.exe            # bundled FFmpeg (git-ignored)
 ```
@@ -346,7 +345,7 @@ counter that advanced as steps were merely *queued*. ETA surfaces in the modal.
 
 ```
 Frontend (React)
-  └─ window.electronAPI.*      (frontend/src/wailsShim.js — a device-API façade)
+  └─ window.nativeAPI.*        (frontend/src/wailsShim.js — a device-API façade)
         ↓  maps to
   window.go.main.App.*         (Wails-generated bindings) + window.runtime events
         ↓

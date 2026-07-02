@@ -38,10 +38,10 @@ export default function Topbar({
   // The main process intercepts the native close (X / Alt+F4) and asks us to
   // confirm — open the same exit dialog the toolbar used to.
   useEffect(() => {
-    return window.electronAPI?.onConfirmClose?.(() => {
+    return window.nativeAPI?.onConfirmClose?.(() => {
       // Tell main we're alive so it doesn't force-close us as "wedged", then
       // open the confirm dialog.
-      window.electronAPI?.confirmCloseAck?.()
+      window.nativeAPI?.confirmCloseAck?.()
       setShowExitConfirm(true)
     })
   }, [])
@@ -51,8 +51,8 @@ export default function Topbar({
   // (min/max/close) buttons so they don't overlap our controls. Under Wails we
   // keep the native OS frame on all platforms (no titleBarOverlay equivalent),
   // so customTitleBar is false and this stays off.
-  const hiddenTitleBar = !!window.electronAPI?.customTitleBar && window.electronAPI.platform !== 'linux'
-  const isWindows      = window.electronAPI?.platform === 'win32'
+  const hiddenTitleBar = !!window.nativeAPI?.customTitleBar && window.nativeAPI.platform !== 'linux'
+  const isWindows      = window.nativeAPI?.platform === 'win32'
 
   const fmtElapsed = (ms) => {
     const totalSec = Math.floor(ms / 1000)
@@ -200,7 +200,7 @@ export default function Topbar({
               Cancel
             </button>
             <button className={styles.exitConfirm} onClick={() => {
-              if (window.electronAPI?.forceClose) window.electronAPI.forceClose()
+              if (window.nativeAPI?.forceClose) window.nativeAPI.forceClose()
               else window.close()
             }}>
               Exit

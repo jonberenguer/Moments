@@ -1,6 +1,6 @@
-// Install the Wails→Electron shim FIRST (side-effect import): it sets
-// window.electronAPI synchronously, before App and its children (useFFmpeg.js,
-// MediaPanel.jsx) are imported — those capture `const api = window.electronAPI`
+// Install the native-API shim FIRST (side-effect import): it sets
+// window.nativeAPI synchronously, before App and its children (useFFmpeg.js,
+// MediaPanel.jsx) are imported — those capture `const api = window.nativeAPI`
 // at module scope, so the shim must exist by then.
 import './wailsShim.js'
 

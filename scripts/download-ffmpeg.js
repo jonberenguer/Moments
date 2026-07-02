@@ -2,8 +2,8 @@
 /**
  * scripts/download-ffmpeg.js
  *
- * Downloads pre-built static FFmpeg binaries into the bin/ directory used by
- * electron-builder's extraResources (and by `npm run dev`).
+ * Downloads pre-built static FFmpeg binaries into the bin/ directory, which the
+ * app spawns at runtime and the installer/CI bundles beside the binary.
  *
  * Usage:
  *   node scripts/download-ffmpeg.js            # both platforms (default)

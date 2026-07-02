@@ -1,19 +1,16 @@
 # Wails (Go) Migration — Plan & Milestone Tracker
 
-> **Branch:** `migrated-to-wails` (off `main` @ v1.5.6). Living doc — update the
-> status boxes as milestones land. Companion to the frozen Electron app in
-> `electron-app-legacy/`.
+> **Branch:** `migrated-to-wails` (off `main` @ v1.5.6). Living doc + milestone
+> record for the move to Wails.
 >
 > **Ground rules:** all conversion work (Go, `wails` CLI, npm, builds) runs in
-> **Docker**, never on the host. Old Electron artifacts live under
-> `electron-app-legacy/`; the repo root is Wails-focused.
+> **Docker**, never on the host; the repo root is Wails-focused.
 
 ## Goal
-Replace the Electron shell (bundled Chromium + Node main process) with **Wails v2**
-(Go backend + OS-native webview), **reusing the React/Vite frontend**. Wins: far
-smaller binary, lower RAM, native subprocess/file streaming (kills the base64
-round-trips). The frontend is ~80% reusable; the `electron/main.js` + `preload.js`
-layer is a **Go rewrite**.
+Build on **Wails v2** (Go backend + OS-native webview), **reusing the React/Vite
+frontend**. Wins: far smaller binary, lower RAM, native subprocess/file streaming
+(kills the base64 round-trips). The frontend is ~80% reusable; the
+main-process/preload layer was reimplemented in Go.
 
 ## Architecture decisions
 - **Keep FFmpeg argument-building in JS** (`src/hooks/useFFmpeg.js`). Go is a *thin
@@ -21,33 +18,33 @@ layer is a **Go rewrite**.
   `__ENC_ARGS_HQ__`), spawns FFmpeg, streams logs + progress, and owns the temp-dir
   lifecycle. Porting the filter-graph logic to Go is explicitly out of scope (highest
   regression risk, ~zero benefit).
-- **Compatibility shim:** expose `window.electronAPI` in the frontend backed by Wails
-  Go bindings + events, so existing call sites change minimally. (See the surface in
-  `electron-app-legacy/electron/preload.js`.)
+- **Compatibility shim:** expose `window.nativeAPI` in the frontend backed by Wails
+  Go bindings + events, so existing call sites change minimally. (See the surface
+  list below.)
 - **`media://` → Wails AssetServer.** Serve clips off disk via a custom
   `http.Handler` using `http.ServeContent` (native HTTP Range → `<video>` seeking).
 - **Drag-drop paths:** Wails `OnFileDrop` gives real absolute paths (replaces
   `webUtils.getPathForFile`).
 
 ## ⚠️ Top risks (validate in M0 before committing further)
-1. **Webview engine change (HIGHEST):** Electron = Blink everywhere. Wails =
+1. **Webview engine change (HIGHEST):** The previous shell used Blink everywhere. Wails =
    **WebView2** (Chromium) on Windows but **WebKitGTK** on Linux. The caption
    wrap/baseline (`src/textLayout.js`, canvas `measureText`) and Phase-A transform
    geometry were **calibrated against Blink** — they must be re-validated on
    WebKitGTK or the Linux preview↔export parity can drift.
 2. **`media://` Range streaming** must work on *both* WebView2 and WebKitGTK.
-3. `-webkit-app-region: drag` (titlebar) is Electron-specific → Wails draggable
+3. `-webkit-app-region: drag` (titlebar) is a Chromium-shell idiom → Wails draggable
    mechanism instead.
 4. **Packaging parity** — re-do the v1.5.6 per-user NSIS installer + upgrade-in-place
    under Wails' NSIS; re-bundle FFmpeg + ~77 MB CJK fonts.
 
-## `window.electronAPI` surface to reproduce (from preload.js)
+## `window.nativeAPI` surface to reproduce (the frontend device API)
 GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExport`
 · events: `onLog`, `onStepStart`, `onStepDone`, `onEncoderInfo` · FS: `readFile`,
 `writeFile`, `copyFile`, `deleteFile`, `fileExists`, `mkdtemp`, `rmdir`,
 `resourcesPath`, `fontPath` · dialog/shell: `saveFileDialog`, `openFilesDialog`,
 `openPath`, `pathForFile` · prefs: `getPrefs`, `setPrefs` · platform: `platform`,
-`isElectron` · window: `forceClose`, `confirmCloseAck`, `onConfirmClose`.
+window: `forceClose`, `confirmCloseAck`, `onConfirmClose`.
 
 ## Milestones
 
@@ -64,7 +61,7 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       (`main.go`/`app.go`/`go.mod`/`wails.json`/`build/`); clean
       `frontend/package.json`. **`wails build` is green in-container** → 85 MB Linux
       binary `build/bin/Moments`, bindings generated, real React app compiles under
-      Vite with no electron-import snags. (85 MB because ~77 MB fonts are embedded
+      Vite with no import snags. (85 MB because ~77 MB fonts are embedded
       via `frontend/public` → move to external resources in M4/M6.)
 - [x] **M2 — Go backend bindings:** DONE (compiles + binds; runtime QA needs a
       display). `prefs.go` (userConfigDir prefs.json), `fs.go` (read/write/copy/
@@ -72,7 +69,7 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       openPath), `ffmpeg.go` (FFmpegCheck + DetectGPU encoder-parse + ResetGPU;
       StartExport/CancelExport stubbed for M4), `app.go` (Platform + onBeforeClose/
       ForceClose/ConfirmCloseAck), `resources.go`. `frontend/src/wailsShim.js`
-      reconstructs `window.electronAPI` on the injected `window.go`/`window.runtime`
+      reconstructs `window.nativeAPI` on the injected `window.go`/`window.runtime`
       globals; installed in `main.jsx` before render. All 22 methods bound; `wails
       build` green. Deferred: DetectGPU HW smoke-tests + full export → M4;
       `pathForFile`/drag-drop → M3.
@@ -112,11 +109,11 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       user`, `$LOCALAPPDATA\Programs\Moments`, upgrade-in-place, prefs preserved) +
       bundles ffmpeg.exe + fonts into `$INSTDIR\ffmpeg`. `wails.json` product info
       (v1.5.6); `build/appicon.png` = Moments icon. CI `.github/workflows/
-      wails-build.yml` (Linux tarball + Windows NSIS + release on v*); legacy electron
-      `build.yml` → `electron-app-legacy/`. PENDING: real Windows installer build (CI),
+      wails-build.yml` (Linux tarball + Windows NSIS + release on v*); the legacy
+      CI workflow was removed. PENDING: real Windows installer build (CI),
       optional AppImage, fonts de-dupe (still embedded in the web bundle too).
 - [~] **M7 — QA parity pass:** in-scope work DONE (gap review + docs). Gap review:
-      all 25 `electronAPI` methods the frontend uses are covered by the shim (no
+      all 25 `nativeAPI` methods the frontend uses are covered by the shim (no
       missing/mismatched bindings); `getPrefs`/`setPrefs`/`resourcesPath` are unused
       parity extras. Docs: `docs/wails-qa-checklist.md` (the runtime checklist),
       CLAUDE.md migration banner + old→new mapping, README note. **REMAINING (needs a
@@ -126,21 +123,20 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       checklist. Optional cleanup: fonts de-dupe, AppImage, prune browser fallback.
 
 ## Status log
-- **2026-07-02 (1)** — Branch created. Restructure: Electron artifacts →
-  `electron-app-legacy/`; `package.json` `main`/`files` re-pointed. Feasibility +
+- **2026-07-02 (1)** — Branch created. Restructure: legacy artifacts moved out of
+  the root; `package.json` `main`/`files` re-pointed. Feasibility +
   milestones agreed. (commit `a06ace2`)
 - **2026-07-02 (2)** — Toolchain image `moments-wails` built (Go 1.23 + WebKitGTK
   4.0/4.1 + Node 24 + Wails v2.12 + nsis); `wails doctor` green.
 - **2026-07-02 (3)** — **M1 done.** Frontend → `frontend/`; Go scaffold at root;
-  clean `frontend/package.json` (electron dep/config dropped, Electron manifest kept
-  as `electron-app-legacy/package.json.electron-reference`). `wails build` green
+  clean `frontend/package.json` (old shell deps/config dropped). `wails build` green
   in-container → `build/bin/Moments` (85 MB). Build via:
   `docker run --rm -u 1000:1000 -e HOME=/tmp -e GOMODCACHE=/gomod -e GOCACHE=/gocache
   -v <scratch>/gomod:/gomod -v <scratch>/gocache:/gocache -v "$PWD":/app -w /app
   moments-wails wails build`.
 - **2026-07-02 (4)** — **M2 done.** Go backend (`prefs`/`fs`/`dialogs`/`ffmpeg`/
   `app`/`resources`.go) + `frontend/src/wailsShim.js` reconstructing
-  `window.electronAPI` over `window.go`/`window.runtime`; wired in `main.jsx` before
+  `window.nativeAPI` over `window.go`/`window.runtime`; wired in `main.jsx` before
   render. All 22 methods bound, `wails build` green. (commit `7f2a4ec`)
 - **2026-07-02 (5)** — **M3 done.** `media.go` AssetServer handler (`/media?p=<abs>`,
   `http.ServeContent` Range); `mediaUrlFor`→`/media?p=…`; `OnFileDrop`→`files:dropped`
@@ -150,9 +146,8 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
   wiring: JS builds the arg arrays (`useFFmpeg.js`, unchanged), Go `StartExport`
   resolves the encoder tokens (`__ENCODER__`/`__ENC_ARGS__`/`__ENC_ARGS_HQ__`),
   spawns FFmpeg, streams `ffmpeg:log`/`stepStart`/`stepDone`/`encoderInfo` events,
-  owns temp-dir lifecycle; port the DetectGPU HW smoke-tests. Reference:
-  `electron-app-legacy/electron/main.js` lines ~107-350 (detect+smoke) & 477-607
-  (export loop).
+  owns temp-dir lifecycle; port the DetectGPU HW smoke-tests. (Now implemented in
+  `ffmpeg.go` (detect+smoke) & `export.go` (export loop).)
 - **2026-07-02 (6)** — **M4 done.** `encoders.go` + `export.go` + expanded
   `ffmpeg.go` (smoke-tests). Full export loop ported (tokens, streaming, fallback,
   cancel); `useFFmpeg.js` unchanged. `wails build` green. (commit `bcb9bf9`)
@@ -161,10 +156,10 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
   `wails build` green. (commit `86dfb3e`)
 - **2026-07-02 (8)** — **M6 config done.** `resources.go` dev+packaged resolution;
   per-user NSIS template + ffmpeg/fonts bundling; `wails.json` info + Moments
-  appicon; `wails-build.yml` CI (Linux tarball + Windows NSIS); legacy electron CI
-  moved to `electron-app-legacy/`. (commit `4291f30`)
+  appicon; `wails-build.yml` CI (Linux tarball + Windows NSIS); the legacy CI
+  workflow removed. (commit `4291f30`)
 - **2026-07-02 (9)** — **M7 in-scope done** (docs/review; no code changes). Gap
-  review passed (shim covers all 25 used `electronAPI` methods). Added
+  review passed (shim covers all 25 used `nativeAPI` methods). Added
   `docs/wails-qa-checklist.md`, CLAUDE.md migration banner + mapping, README note.
   **Migration code-complete through M6; remaining = runtime QA + CI installer build
   (needs a display / Windows runner — see the checklist).** M1–M6 all `wails build`

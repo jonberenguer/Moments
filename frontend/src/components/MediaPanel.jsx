@@ -2,11 +2,11 @@ import { useCallback, useRef, useState, useEffect } from 'react'
 import { Plus, Music, Trash2, Play, Pause, GripVertical, PlusCircle, ListPlus } from 'lucide-react'
 import styles from './MediaPanel.module.css'
 
-// Use native Electron dialog when available, fall back to HTML input otherwise
-const api = window.electronAPI
+// Use the native open dialog when available, fall back to HTML input otherwise
+const api = window.nativeAPI
 
 // Resolve dropped / <input>-selected Files to path descriptors when running in
-// Electron (so the bytes never enter the renderer — the large-import fix); fall
+// the native path (so the bytes never enter the renderer — the large-import fix); fall
 // back to the raw File in a browser/dev environment.
 function filesToEntries(fileList) {
   return Array.from(fileList).map(f => {
@@ -19,7 +19,7 @@ export default function MediaPanel({
   mediaLibrary, activeMediaId, onSelectMedia, onAddToTimeline, onRemoveMedia, onAddFiles, onUpdateMediaDuration,
   musicFile, onMusicFile, onMusicDuration, musicNeedsRelink,
 }) {
-  const fileInputRef   = useRef()   // fallback for non-Electron environments
+  const fileInputRef   = useRef()   // fallback for plain-browser environments
   const musicInputRef  = useRef()
   const previewVideoRef= useRef()
   const audioRef       = useRef()
@@ -85,10 +85,10 @@ export default function MediaPanel({
     clearSelection()
   }, [mediaLibrary, selectedIds, onAddToTimeline, clearSelection])
 
-  // ── Native file open (remembers last folder via Electron dialog) ─────────
+  // ── Native file open (remembers last folder via the native dialog) ──────
   const openMediaFiles = useCallback(async () => {
     if (api?.openFilesDialog) {
-      // Electron path — native dialog returns { name, path, mime, size } path
+      // Native path — the dialog returns { name, path, mime, size } path
       // descriptors (no bytes); the store renders them via media:// and the export
       // copies from the path.
       const results = await api.openFilesDialog({ accept: 'image/*,video/*' })

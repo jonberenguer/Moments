@@ -10,9 +10,8 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// MediaEntry mirrors the Electron dialog:openFiles return shape: path descriptors
-// only (no bytes) — the frontend renders via the media:// equivalent and export
-// copies from path.
+// MediaEntry is the open-dialog return shape: path descriptors only (no bytes) —
+// the frontend renders via the media server and export copies from path.
 type MediaEntry struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
@@ -20,7 +19,7 @@ type MediaEntry struct {
 	Size int64  `json:"size"`
 }
 
-// FileFilterInput matches the Electron filter shape ({name, extensions}) the
+// FileFilterInput matches the filter shape ({name, extensions}) the
 // frontend passes to saveFileDialog.
 type FileFilterInput struct {
 	Name       string   `json:"name"`
@@ -76,7 +75,7 @@ func mimeFor(ext string) string {
 }
 
 // OpenFilesDialog shows a native multi-select open dialog and returns path
-// descriptors, persisting the chosen directory as lastMediaDir (like Electron).
+// descriptors, persisting the chosen directory as lastMediaDir for next time.
 func (a *App) OpenFilesDialog(accept string) ([]MediaEntry, error) {
 	prefs := readPrefs()
 	defaultDir, _ := prefs["lastMediaDir"].(string)
@@ -117,7 +116,7 @@ func (a *App) OpenFilesDialog(accept string) ([]MediaEntry, error) {
 }
 
 // SaveFileDialog shows a native save dialog and returns the chosen path, or an
-// empty string when cancelled (the shim maps "" → null to match Electron).
+// empty string when cancelled (the shim maps "" → null).
 func (a *App) SaveFileDialog(defaultName string, filters []FileFilterInput) (string, error) {
 	if defaultName == "" {
 		defaultName = "moment.mp4"
@@ -139,8 +138,8 @@ func (a *App) SaveFileDialog(defaultName string, filters []FileFilterInput) (str
 	})
 }
 
-// OpenPath opens a file/dir in the OS default handler (Electron shell.openPath).
-// Returns "" on success or an error string, matching shell.openPath.
+// OpenPath opens a file/dir in the OS default handler.
+// Returns "" on success or an error string.
 func (a *App) OpenPath(path string) string {
 	var cmd *exec.Cmd
 	switch goruntime.GOOS {

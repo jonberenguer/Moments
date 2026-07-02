@@ -16,7 +16,7 @@ import (
 //	<install>/ffmpeg/ffmpeg(.exe)
 //	<install>/ffmpeg/fonts/*.ttf|otf|ttc
 //
-// (Mirrors the Electron resources/ffmpeg/{ffmpeg,fonts} layout.) The frontend
+// (Mirrors the resources/ffmpeg/{ffmpeg,fonts} layout.) The frontend
 // still embeds the fonts for the preview @font-face; FFmpeg reads them from disk
 // here. TODO: de-dupe (serve the preview fonts from disk too) to shrink the binary.
 

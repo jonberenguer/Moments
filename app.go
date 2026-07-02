@@ -12,9 +12,8 @@ import (
 
 // App is the Wails backend. Every exported method on *App is bound (see Bind in
 // main.go) and callable from the frontend via window.go.main.App.<Method>. The
-// frontend does not call these directly — src/wailsShim.js maps the Electron
-// window.electronAPI surface onto them (see electron-app-legacy/electron/preload.js
-// for the original contract).
+// frontend does not call these directly — src/wailsShim.js maps the
+// window.nativeAPI device API onto them.
 type App struct {
 	ctx        context.Context
 	forceClose bool     // set by ForceClose() so onBeforeClose lets the window go
@@ -73,8 +72,8 @@ func (a *App) onSecondInstance(_ options.SecondInstanceData) {
 	wruntime.Show(a.ctx)
 }
 
-// Platform returns an Electron-style platform string so the frontend's existing
-// checks (window.electronAPI.platform === 'win32' / !== 'linux') keep working.
+// Platform returns an OS-style platform string so the frontend's existing
+// checks (window.nativeAPI.platform === 'win32' / !== 'linux') keep working.
 func (a *App) Platform() string {
 	switch goruntime.GOOS {
 	case "windows":
@@ -86,11 +85,11 @@ func (a *App) Platform() string {
 	}
 }
 
-// ── Window close (mirrors the Electron confirm-close flow + v1.5.6 watchdog) ──
-// Electron intercepted the window 'close', asked the renderer (onConfirmClose),
-// and closed only after ForceClose() — with a 4s watchdog that force-closed a
-// wedged renderer and killed in-flight FFmpeg (the Windows freeze-on-close fix).
-// Wails' OnBeforeClose is the equivalent hook.
+// ── Window close (confirm-close flow + watchdog) ──
+// OnBeforeClose intercepts the window 'close', asks the frontend to confirm
+// (onConfirmClose), and closes only after ForceClose() — with a 4s watchdog that
+// force-closes a wedged renderer and kills in-flight FFmpeg (avoids a freeze on
+// close if the renderer hangs or an export is still running).
 
 // onBeforeClose is wired via options.App.OnBeforeClose in main.go. Returning true
 // prevents the close; we emit the confirm-close event and arm a watchdog. A live

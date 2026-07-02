@@ -11,7 +11,7 @@ const isAcceptable = entry => { const e = extOf(entry?.name); return IMAGE_EXTS.
 // enter the renderer. Under Wails this hits the AssetServer fallback handler
 // (media.go), which serves the file with HTTP Range support. The absolute path is
 // base64url-encoded into a single path segment (robust across the WebView2 and
-// WebKitGTK scheme handlers + net/http path cleaning). (Was the Electron media://
+// WebKitGTK scheme handlers + net/http path cleaning). (Was a custom media://
 // custom protocol.)
 const b64urlUtf8 = str =>
   btoa(String.fromCharCode(...new TextEncoder().encode(str)))
@@ -25,7 +25,7 @@ const mediaUrlFor = absPath =>
 // Normalize an import entry into common media fields. A path descriptor
 // ({ name, path } from the native dialog or webUtils.getPathForFile) is served via
 // media:// (no bytes in the renderer); a plain browser File keeps the blob-URL path
-// (dev / non-Electron fallback).
+// (dev / plain-browser fallback).
 function toMediaSource(entry) {
   const isImage = IMAGE_EXTS.has(extOf(entry.name))
   if (entry.path) {
@@ -479,7 +479,7 @@ export function useMediaStore() {
         // runs async (path-existence is an IPC round-trip); clips whose path is
         // gone (moved file / other machine / browser-saved) stay _needsMedia and
         // fall back to the filename re-link flow. Old workflows have no path → no-op.
-        const fsApi = typeof window !== 'undefined' ? window.electronAPI : null
+        const fsApi = typeof window !== 'undefined' ? window.nativeAPI : null
         if (fsApi?.fileExists) {
           ;(async () => {
             const byPath = new Map()  // path → new media-library item

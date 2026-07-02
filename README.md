@@ -211,7 +211,7 @@ Moments/
 ├── wails.json  build/ Wails project config + build assets (icons, NSIS template)
 ├── frontend/
 │   ├── src/
-│   │   ├── wailsShim.js      Reconstructs window.electronAPI over the Wails bindings
+│   │   ├── wailsShim.js      Reconstructs window.nativeAPI over the Wails bindings
 │   │   ├── hooks/
 │   │   │   ├── useFFmpeg.js      Builds FFmpeg step lists (with __ENCODER__ tokens); progress/ETA
 │   │   │   ├── useMediaStore.js  All app state — clips, timeline, settings, workflow

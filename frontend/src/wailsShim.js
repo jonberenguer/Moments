@@ -1,12 +1,12 @@
-// Wails → Electron compatibility shim.
+// Frontend native-API shim.
 //
-// Reconstructs window.electronAPI (the Electron preload surface, see
-// electron-app-legacy/electron/preload.js) on top of the Wails-injected globals
-// window.go.main.App.* and window.runtime.
+// Reconstructs `window.nativeAPI` — the stable device API the React code calls —
+// on top of the Wails-injected globals `window.go.main.App.*` and
+// `window.runtime`.
 //
-// IMPORTANT: this installs window.electronAPI as a **top-level side effect** and
-// MUST be imported before any module that captures `window.electronAPI` at module
-// scope — useFFmpeg.js and MediaPanel.jsx do `const api = window.electronAPI` at
+// IMPORTANT: this installs window.nativeAPI as a **top-level side effect** and
+// MUST be imported before any module that captures `window.nativeAPI` at module
+// scope — useFFmpeg.js and MediaPanel.jsx do `const api = window.nativeAPI` at
 // import time. So main.jsx imports this first. (The earlier async install ran
 // after those modules had already captured `undefined`, which crashed detectGPU /
 // export.) Backend methods + events are resolved lazily (at call time), so a
@@ -30,9 +30,9 @@ const onEvent = (name) => (cb) => {
 }
 
 // Only install under Wails (window.runtime / window.go are injected before the app
-// bundle runs). In a plain browser (vite dev without Wails) leave electronAPI
+// bundle runs). In a plain browser (vite dev without Wails) leave nativeAPI
 // undefined so the app uses its browser fallback code paths.
-if (!window.electronAPI && (window.runtime || window.go)) {
+if (!window.nativeAPI && (window.runtime || window.go)) {
   const ua = navigator.userAgent || ''
   const api = {
     // ── GPU ──
@@ -77,7 +77,6 @@ if (!window.electronAPI && (window.runtime || window.go)) {
 
     // ── Platform info (sync guess from UA; refined by backend below) ──
     platform: /Windows/i.test(ua) ? 'win32' : /Mac OS|Macintosh/i.test(ua) ? 'darwin' : 'linux',
-    isElectron: true,
     customTitleBar: false, // Wails uses the native OS frame on all platforms
 
     // ── Window controls ──
@@ -85,7 +84,7 @@ if (!window.electronAPI && (window.runtime || window.go)) {
     confirmCloseAck: () => call('ConfirmCloseAck'),
     onConfirmClose: onEvent('app:confirm-close'),
   }
-  window.electronAPI = api
+  window.nativeAPI = api
 
   // Refine platform with the authoritative backend value once reachable.
   call('Platform').then((p) => { if (p) api.platform = p }).catch(() => {})

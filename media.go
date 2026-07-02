@@ -45,7 +45,7 @@ var mediaContentType = map[string]string{
 }
 
 // mediaHandler is the Wails AssetServer fallback handler that serves imported
-// media off disk — the replacement for the Electron `media://` custom protocol.
+// media off disk — the replacement for the `media://` custom protocol.
 //
 // The frontend renders imported clips with
 //   src="/media/<base64url(abs)>"   (see mediaUrlFor in useMediaStore.js)

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// File-system helpers reproducing the Electron fs:* IPC handlers. Base64 is kept
+// File-system helpers reproducing the fs:* IPC handlers. Base64 is kept
 // for ReadFile/WriteFile to match the existing renderer contract (the browser
 // File fallback path base64-writes); native path copies use CopyFile directly.
 
@@ -47,7 +47,7 @@ func (a *App) CopyFile(src, dest string) error {
 	return out.Sync()
 }
 
-// DeleteFile removes a file (best-effort, matches the Electron try/catch).
+// DeleteFile removes a file (best-effort, matches the try/catch).
 func (a *App) DeleteFile(path string) bool {
 	_ = os.Remove(path)
 	return true

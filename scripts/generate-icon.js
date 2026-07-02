@@ -2,9 +2,9 @@
 /**
  * scripts/generate-icon.js
  *
- * Renders public/icon.png (256×256 RGBA) — the film-strip app icon, matching
- * public/favicon.svg. electron-builder needs a PNG (it can't convert SVG), and
- * this keeps the raster icon reproducible without any image tooling: it draws
+ * Renders the icon.png (256×256 RGBA) — the film-strip app icon, matching
+ * favicon.svg. Wails' icon converter needs a raster PNG (it can't process SVG),
+ * and this keeps the raster icon reproducible without any image tooling: it draws
  * the same shapes with 4× supersampling and encodes the PNG using only Node's
  * built-in zlib.
  *

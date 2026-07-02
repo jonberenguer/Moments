@@ -1,7 +1,7 @@
 /**
- * useFFmpeg — Electron Native FFmpeg Hook
+ * useFFmpeg — native FFmpeg hook
  *
- * Replaces the WASM-based @ffmpeg/ffmpeg with native FFmpeg via Electron IPC.
+ * Builds the FFmpeg step lists; the Go backend spawns FFmpeg and streams results.
  * GPU priority: NVENC (dedicated) → AMF (dedicated) → QSV (iGPU) → CPU
  *
  * The export pipeline is 100% faithful to the original WASM pipeline
@@ -19,7 +19,7 @@ import { useState, useRef, useCallback } from 'react'
 import { wrapText } from '../textLayout'
 import { fontFallbackText } from '../fontCoverage'
 
-const api = window.electronAPI   // injected by preload.js
+const api = window.nativeAPI   // injected by preload.js
 
 // ─── Constants (same as WASM version) ────────────────────────────────────────
 const QUALITY_DIMS = {
@@ -481,7 +481,7 @@ export function useFFmpeg() {
       const validClips = []
       for (let i = 0; i < clips.length; i++) {
         const c = clips[i]
-        // A clip is exportable if it has either an on-disk path (Electron, copied
+        // A clip is exportable if it has either an on-disk path (copied
         // from source) or a browser File (dev/fallback, base64-written).
         if (!c.file && !c.path) { pushLog(`  ⚠ Skipping "${c.name}" — no file`); continue }
         const ext = (c.name || c.file?.name || '').split('.').pop().toLowerCase()
@@ -498,7 +498,7 @@ export function useFFmpeg() {
       pushLog('Writing source files…')
       for (const c of validClips) {
         if (c.path) {
-          // Path-based (Electron): copy straight from the original file on disk —
+          // Path-based: copy straight from the original file on disk —
           // no bytes round-trip through the renderer.
           await api.copyFile(c.path, p(c._fname))
           pushLog(`  copied ${c._fname}`)

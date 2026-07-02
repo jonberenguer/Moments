@@ -14,13 +14,13 @@ import (
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Export pipeline — the Go side of the Electron ffmpeg:export handler.
+// Export pipeline — the Go side of export.
 //
 // DESIGN (see WAILS_MIGRATION_PLAN.md): the frontend (useFFmpeg.js) still builds
 // all FFmpeg argument arrays and does the single-final-pass token swap; Go only
 // resolves the three tokens (__ENCODER__ / __ENC_ARGS__ / __ENC_ARGS_HQ__),
 // spawns FFmpeg per step, streams logs + progress as events, and returns the
-// Electron-shaped result. Temp-dir cleanup stays renderer-owned (it reads the
+// {ok,encoder,hw,steps} result. Temp-dir cleanup stays frontend-owned (it reads the
 // output after StartExport resolves, then calls Rmdir) — so we never delete it.
 
 // ── Payload types (Wails unmarshals the JS object into these) ─────────────────

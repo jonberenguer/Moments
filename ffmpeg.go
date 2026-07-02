@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// FFmpegStatus mirrors the Electron ffmpeg:check return shape.
+// FFmpegStatus mirrors the ffmpeg:check return shape.
 type FFmpegStatus struct {
 	Available bool   `json:"available"`
 	Path      string `json:"path"`
