@@ -1,7 +1,20 @@
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
 node_modules/
 dist/
+
+# Wails / Go build output
+build/bin/
+frontend/package.json.md5
+.wails-ref/
+
+# Legacy Electron build output
 dist-electron/
+
+# Bundled binaries (fetched via scripts/download-ffmpeg.js)
 bin/linux/ffmpeg
 bin/win/ffmpeg.exe
+
 *.log
 .DS_Store

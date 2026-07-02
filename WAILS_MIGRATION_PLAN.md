@@ -51,14 +51,21 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
 
 ## Milestones
 
-- [ ] **M0 — De-risk spikes** (Docker; validate before deeper commitment)
-  - [ ] Spike A: Wails serves a local video via AssetServer handler w/ Range →
-        `<video>` seeks on WebView2 **and** WebKitGTK.
+- [~] **M0 — De-risk spikes** (Docker; now run *inside* the M1 scaffold, not
+      standalone). Toolchain proven: `moments-wails` image builds, `wails doctor`
+      green (GTK3 + WebKitGTK 4.0/4.1 + gcc + nsis; npm flag is a doctor
+      false-negative).
+  - [ ] Spike A: AssetServer handler serves a local video w/ Range → `<video>`
+        seeks on WebView2 **and** WebKitGTK. (Wire into main.go M3 handler slot.)
   - [ ] Spike B: Go spawns FFmpeg, streams `time=` progress to the UI via events.
   - [ ] Spike C **(highest risk)**: render a caption in **WebKitGTK** and
         pixel-compare vs the FFmpeg export — re-validate text wrap/baseline parity.
-- [ ] **M1 — Scaffold:** `wails init`; mount the existing Vite/React frontend; UI
-      renders against a stubbed Go backend. Wails toolchain Dockerfile working.
+- [x] **M1 — Scaffold:** DONE. Frontend moved to `frontend/`; Go project at root
+      (`main.go`/`app.go`/`go.mod`/`wails.json`/`build/`); clean
+      `frontend/package.json`. **`wails build` is green in-container** → 85 MB Linux
+      binary `build/bin/Moments`, bindings generated, real React app compiles under
+      Vite with no electron-import snags. (85 MB because ~77 MB fonts are embedded
+      via `frontend/public` → move to external resources in M4/M6.)
 - [ ] **M2 — Go backend bindings:** port the IPC surface (fs, dialogs, prefs,
       fontPath, GPU detect, ffmpeg export/cancel) + the `window.electronAPI` JS shim.
 - [ ] **M3 — media:// equivalent** (AssetServer Range handler) + drag-drop/
@@ -72,11 +79,19 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
 - [ ] **M7 — QA parity pass** against the Electron feature list (CLAUDE.md).
 
 ## Status log
-- **2026-07-02** — Branch created. Restructure done: Electron artifacts →
-  `electron-app-legacy/` (`electron/`, `Dockerfile.electron`,
-  `WINDOWS_STABILITY_PLAN.md`); `package.json` `main`/`files` re-pointed. Feasibility
-  + milestones agreed. **Next: M0 spikes** (lead with Spike C) in a Wails toolchain
-  Docker image.
+- **2026-07-02 (1)** — Branch created. Restructure: Electron artifacts →
+  `electron-app-legacy/`; `package.json` `main`/`files` re-pointed. Feasibility +
+  milestones agreed. (commit `a06ace2`)
+- **2026-07-02 (2)** — Toolchain image `moments-wails` built (Go 1.23 + WebKitGTK
+  4.0/4.1 + Node 24 + Wails v2.12 + nsis); `wails doctor` green.
+- **2026-07-02 (3)** — **M1 done.** Frontend → `frontend/`; Go scaffold at root;
+  clean `frontend/package.json` (electron dep/config dropped, Electron manifest kept
+  as `electron-app-legacy/package.json.electron-reference`). `wails build` green
+  in-container → `build/bin/Moments` (85 MB). Build via:
+  `docker run --rm -u 1000:1000 -e HOME=/tmp -e GOMODCACHE=/gomod -e GOCACHE=/gocache
+  -v <scratch>/gomod:/gomod -v <scratch>/gocache:/gocache -v "$PWD":/app -w /app
+  moments-wails wails build`. **Next: M2** (Go backend bindings + `window.electronAPI`
+  shim) — start from the surface list above and `electron-app-legacy/electron/main.js`.
 
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is

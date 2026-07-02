@@ -5,16 +5,16 @@
 # Build:  docker build -t moments-wails .
 # Shell:  docker run --rm -it -v "$PWD":/app -w /app moments-wails bash
 #
-# NOTE: unverified until first `docker build` (needs network + time). The
-# webkit2gtk version differs by Debian release: bookworm ships 4.1
-# (libwebkit2gtk-4.1-dev); older releases use 4.0. Wails detects either.
+# NOTE: bookworm ships WebKitGTK 4.1; we also install the 4.0-dev compat package
+# so a default `wails build` (which links webkit2gtk-4.0) works without the
+# `-tags webkit2_41` build tag, and `wails doctor` reports libwebkit as found.
 
 FROM golang:1.23-bookworm
 
-# ── Native deps for Wails (GTK3 + WebKitGTK) + headless render (xvfb) ─────────
+# ── Native deps for Wails (GTK3 + WebKitGTK 4.0+4.1) + headless render (xvfb) ─
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential pkg-config ca-certificates curl git \
-      libgtk-3-dev libwebkit2gtk-4.1-dev \
+      libgtk-3-dev libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev \
       xvfb xauth \
       nsis \
     && rm -rf /var/lib/apt/lists/*
