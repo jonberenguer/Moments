@@ -9,6 +9,16 @@ import (
 	"strings"
 )
 
+// Explicit content types so rendering never depends on the OS mime table
+// (Go's builtin table lacks .mp4/.mov/etc, and a minimal system may have no
+// /etc/mime.types).
+var mediaContentType = map[string]string{
+	".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+	".mkv": "video/x-matroska", ".avi": "video/x-msvideo", ".m4v": "video/x-m4v",
+	".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+	".gif": "image/gif", ".webp": "image/webp", ".heic": "image/heic", ".avif": "image/avif",
+}
+
 // mediaHandler is the Wails AssetServer fallback handler that serves imported
 // media off disk — the replacement for the Electron `media://` custom protocol.
 //
@@ -40,7 +50,6 @@ func mediaHandler() http.Handler {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		log.Printf("[media] serving: %s (%d bytes)", abs, fi.Size())
 		f, err := os.Open(abs)
 		if err != nil {
 			log.Printf("[media] open failed: %q: %v", abs, err)
@@ -48,6 +57,11 @@ func mediaHandler() http.Handler {
 			return
 		}
 		defer f.Close()
+		if ct := mediaContentType[strings.ToLower(filepath.Ext(abs))]; ct != "" {
+			w.Header().Set("Content-Type", ct)
+		}
+		log.Printf("[media] serving: %s (%d bytes) range=%q ct=%q",
+			abs, fi.Size(), r.Header.Get("Range"), w.Header().Get("Content-Type"))
 		http.ServeContent(w, r, filepath.Base(abs), fi.ModTime(), f)
 	})
 

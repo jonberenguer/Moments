@@ -8,6 +8,19 @@ Run dev: `wails dev` (in the toolchain container needs an X server; simplest is 
 run on a real Linux desktop with Go+Wails+WebKitGTK, or use the built binary
 `build/bin/Moments`).
 
+## ⚠️ Linux runtime dependencies (WebKitGTK)
+Unlike Electron (bundled Chromium + codecs), a Wails Linux app uses the system
+WebKitGTK + GStreamer. Required on the target machine:
+- **WebKitGTK 4.1 + GTK3:** `libwebkit2gtk-4.1-0 libgtk-3-0t64` (Debian 13 names;
+  the binary is built with `-tags webkit2_41`).
+- **GStreamer H.264/AAC codecs** — WITHOUT these, MP4 (`<video>`) renders **blank**
+  (thumbnails/preview/canvas), even though the file is served fine:
+  `gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav`
+  (`gstreamer1.0-libav` = the `avdec_h264` decoder). Still images (JPG/PNG) need no
+  codec. **Windows/WebView2 is unaffected** (H.264 built in).
+- Follow-up: for a friction-free Linux release, either document these deps or ship
+  an AppImage that bundles the GStreamer codec plugins.
+
 ## Spike C — preview↔export parity (HIGHEST RISK)
 The caption wrap/baseline + Phase-A transform geometry were calibrated on **Blink**
 (Electron). Wails uses **WebKitGTK on Linux** — re-validate:
