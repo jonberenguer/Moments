@@ -30,31 +30,9 @@ Every repository where Claude generates the source code **must** include the fol
 
 ---
 
-## ⚠️ MIGRATION IN PROGRESS — Electron → Wails (Go)
-
-As of 2026-07-02 the app is being migrated from Electron to **Wails v2 (Go
-backend + OS-native webview)** on branch `migrated-to-wails`. **The React/Vite
-frontend is reused** (now under `frontend/`); the Electron main/preload layer was
-rewritten in Go. See **`WAILS_MIGRATION_PLAN.md`** (living tracker, M0–M7) and
-**`docs/wails-qa-checklist.md`**.
-
-- The original Electron implementation is frozen under **`electron-app-legacy/`**
-  (this document's Electron details still describe it accurately, and remain the
-  behavioral spec the Go port mirrors).
-- **Old → new mapping:** `electron/main.js` → Go (`app.go`, `fs.go`, `prefs.go`,
-  `dialogs.go`, `ffmpeg.go`, `encoders.go`, `export.go`, `media.go`,
-  `resources.go`); `preload.js` `window.electronAPI` → `frontend/src/wailsShim.js`
-  over Wails bindings; `media://` protocol → AssetServer `/media?p=<abs>` handler
-  (`http.ServeContent` Range); drag-drop `webUtils` → Wails `OnFileDrop`. FFmpeg
-  arg-building stays in JS (`useFFmpeg.js`); Go only resolves tokens + spawns.
-- Status: M1–M5 done; M6 (packaging) config done (Windows NSIS builds on CI);
-  M7 = runtime QA on a real display (see the checklist).
-
----
-
 ## Project Overview
 
-**Moments** is a cross-platform desktop photo & video slideshow editor built with Electron. Users import media, arrange clips on a timeline, apply transitions and text overlays, and export a finished MP4. Video encoding runs via a **native FFmpeg child process** with GPU acceleration — replacing the original browser-based WebAssembly engine entirely.
+**Moments** is a cross-platform desktop photo & video slideshow editor. Users import media, arrange clips on a timeline, apply transitions and text overlays, and export a finished MP4. Video encoding runs via a **native FFmpeg binary** the Go backend spawns, with GPU acceleration.
 
 **Platforms:** Linux (x64) · Windows (x64)
 
@@ -62,66 +40,68 @@ rewritten in Go. See **`WAILS_MIGRATION_PLAN.md`** (living tracker, M0–M7) and
 
 | Layer | Tool |
 |---|---|
-| Shell | Electron 35 |
-| Framework | React 19 + Vite 8 |
-| Video encoding | Native FFmpeg binary (bundled) via IPC child process |
+| Shell | **Wails v2** (Go backend + OS-native webview: WebView2 on Windows, WebKitGTK on Linux) |
+| Framework | React 19 + Vite 8 (in `frontend/`) |
+| Video encoding | Native FFmpeg binary (bundled), spawned by the Go backend |
 | GPU acceleration | NVENC (NVIDIA) → AMF (AMD) → QSV (Intel iGPU) → CPU |
 | Icons | `lucide-react` |
 | Styling | CSS Modules |
 | State | Custom hook (`useMediaStore`) — no external state lib |
 
-**Run locally**
+**Build / run** — all builds run in the **Docker toolchain image** (`Dockerfile`: Go + WebKitGTK 4.0/4.1 + Node + the `wails` CLI), never on the host:
 ```bash
-npm install
-# Place FFmpeg binary at bin/linux/ffmpeg (Linux) or bin/win/ffmpeg.exe (Windows)
-npm run dev   # starts Vite on :5173 + Electron
+docker build -t moments-wails .
+# Place FFmpeg at bin/linux/ffmpeg (Linux) or bin/win/ffmpeg.exe (Windows)
+docker run --rm -u 1000:1000 -e HOME=/tmp -v "$PWD":/app -w /app moments-wails \
+  wails build -tags webkit2_41            # → build/bin/Moments
+# Dev with hot reload (needs a display): wails dev
 ```
 
 ---
 
-## Current State & Open Work (June 2026)
+## Architecture (Wails / Go)
 
-Progress capture so work-in-progress isn't lost across sessions.
+The app is a **Wails v2** shell: a Go backend + the OS-native webview, with the React/Vite frontend under `frontend/`.
 
-### Branches
-- **`main`** — everything below is committed but **NOT pushed** (origin/main is behind). The CI workflow's `push.branches: [main]` is commented out, so CI builds run only on **`v*` tags** + PRs (not on every push to main).
-- **`electron-40`** — Electron 35 → **40.10.3** upgrade (clears the last `npm audit` advisory → 0 vulns). Parked, **unpushed**, needs **runtime QA** (Windows custom title bar, Linux GNOME/Wayland window + native dialogs, GPU/NVENC detect, full export). Branched *before* the text/transform work, so **rebase onto `main` before merging**.
+- **Go backend** (`*.go` at repo root, all methods on the single bound `App` struct → exposed to the frontend as `window.go.main.App.*`):
+  - `app.go` — lifecycle, window close-confirm + watchdog, `OnFileDrop`, single-instance.
+  - `fs.go` — file read/write/copy/delete/exists, mkdtemp, rmdir, font/resource paths.
+  - `prefs.go` — `prefs.json` in the OS user-config dir.
+  - `dialogs.go` — native open/save dialogs + shell open.
+  - `ffmpeg.go` — GPU detection + 1-frame smoke-tests, ffmpeg availability.
+  - `encoders.go` — encoder arg builders (`encoderQualityArgs`, `encoderIntermediateArgs`, `resolveEncoder`).
+  - `export.go` — the FFmpeg export loop (`StartExport`): token resolution, per-step spawn, progress events, cancellation.
+  - `media.go` — the **loopback HTTP media server** (serves imported clips off disk).
+  - `resources.go` — dev vs packaged resolution of the ffmpeg binary + fonts.
+- **Frontend device API** (`frontend/src/wailsShim.js`): reconstructs the frontend's `window.electronAPI` object (a name kept from the prior shell so call sites didn't change) on top of the Wails bindings + runtime events. **Installed as a synchronous side-effect, imported first in `frontend/src/main.jsx`** — components capture `const api = window.electronAPI` at module load, so the shim must exist before them.
+- **FFmpeg pipeline stays in JS** (`useFFmpeg.js` builds the arg arrays with the `__ENCODER__` / `__ENC_ARGS__` / `__ENC_ARGS_HQ__` tokens and does the single-final-pass swap); the Go backend resolves the tokens and spawns FFmpeg. This is deliberate — the fragile filter-graph logic is untouched.
 
-### Done — export, timeline & preview (latest, on `main`)
-- **Text fonts overhaul:** caption font size **30–400 (default 144)**; **6 CJK preset fonts committed** (Noto JP/TC/SC/KR, Taipei Sans, GenSeki); **WYSIWYG CJK** — selected font always honored, unsupported glyphs → □ in preview+export (`src/fontCoverage.js` cmap parse + Inspector warning), no more silent Noto-CJK substitution; **custom fonts** get a content-stable family (fixes upload-repaint / drop-on-blur), are **reusable across captions** via the dropdown, and persist in workflows (base64). See **Preset Fonts → CJK rendering** and **Custom fonts**.
-- **Export quality presets + custom bitrate:** `encoderQualityArgs(encoder, tier, bitrateMbps)` — High/Balanced/Small tiers (CRF/CQ + preset per encoder) and an optional custom Mbps target (capped VBR). Picked in the Export modal, persisted as global prefs. See **Encoder quality args**.
-- **Web-ready MP4 + alternative formats:** always-on `+faststart` (moov atom to front); **WebM** (VP9/Opus) and **GIF** (palettegen/paletteuse) as final-stage transcodes off the H.264 master, gated on detected codec availability. See **Output formats (Stage 5)**.
-- **Real export progress + ETA:** work-weighted model driven by FFmpeg's streamed `time=` (replaces the old "advance as steps are queued" counter). See **Real progress + ETA**.
-- **NVENC detection fix:** the GPU smoke test probed a **64×64** frame, which Ampere/Ada NVENC rejects (below min dimension) → false "no GPU". Bumped to **256×256**; probe stderr is now logged (`[GPU] smoke test failed …`). **Verified working on a real NVIDIA box.**
-- **Timeline:** background-music **waveform lane** (trimmed slice, aligned to clips; decoded via `useAudioPeaks`) + **zoom** (0.25×–8×, slider + Ctrl/Cmd-wheel; `PX_PER_SEC_BASE × zoom`).
-- **Preview:** background music now **plays synced to the playhead** (starts at `musicTrimStart`, honors mute + `musicVolume`, stops at `trimEnd`).
+The migration from the prior Electron shell is documented in **`WAILS_MIGRATION_PLAN.md`**; runtime QA + Linux runtime dependencies are in **`docs/wails-qa-checklist.md`**. The archived prior implementation lives under `electron-app-legacy/` (retained for reference, not built).
 
-### Done — earlier (on `main`)
-- **Security / deps:** vite/electron-builder/wait-on/concurrently bumped + build Node base **20 → 24**; `npm audit` clean (the last item is Electron, fixed on `electron-40`). eslint config renamed to `.mjs`.
-- **Text overlays — major rework:** special-char crashes fixed (`textfile=` + `expansion=none`, one file per line); **CJK languages** (Korean/Chinese/Japanese) via bundled Noto Sans CJK, auto-routed; **wrapping + alignment** (`boxWidth`, `textAlign`) with preview↔export parity (shared `src/textLayout.js`); **vertical placement matched to the preview pixel-for-pixel** via per-line baselines (`buildCaptionDrawtexts`).
-- **Viewport:** removed the zoom slider; **always fit-to-window** (container-query units).
-- **Clip transform (Phase A):** scale / rotate / move via Inspector sliders, applied in preview + export (incl. blur background), geometry harness-verified. See the Clip transform path in the Export Pipeline section.
-- **Bug fixes:** trimmed clips **shrink** (removed misleading trim overlay); clip-id collision after workflow load; text-segment id collision; multi-line caption cutoff.
-
-### Open
-- Push `main` (+ the owner's `package.json` version bump, currently uncommitted) when ready.
-- Electron 40 QA + merge.
-- **Phase B:** on-canvas transform gizmo (drag/resize/rotate handles) — Phase A is sliders only.
-- **In-app verification** of the harness-verified changes (caption positioning, clip transform) on the built app.
-- **Real-hardware check of the non-NVENC tiers/formats:** the smoke test only proves an encoder *opens* with default args — exercise each quality tier + WebM/GIF on QSV/AMF/V4L2 (no auto CPU fallback if a fuller arg is rejected).
-
-### Tooling — offscreen-render calibration harness
-For any "does the export match the preview" question, there's a verified method (used to nail caption baselines + transform geometry): render a **replica of the preview CSS** in **headless Chromium** (reusable `calib-chromium` Docker image), render the **FFmpeg export** of the same content, and **pixel-compare** with Python/PIL. The browser/Blink engine matches Electron's, so it's a faithful proxy. Reuse it before changing any preview↔export geometry.
+### ⚠️ Linux runtime dependencies (WebKitGTK)
+Unlike a bundled-Chromium shell, a Wails Linux app uses the system WebKitGTK + GStreamer, so the target machine needs:
+- **WebKitGTK 4.1 + GTK3:** `libwebkit2gtk-4.1-0 libgtk-3-0t64` (Debian 13 names). Build with `-tags webkit2_41` (Debian 13 / Ubuntu 24.04 dropped WebKitGTK 4.0).
+- **GStreamer H.264/AAC codecs** for MP4 playback: `gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav`. Without these `<video>` renders blank. Windows/WebView2 is unaffected (H.264 built in).
 
 ---
 
-## ⚠️ Project Naming Convention
+## Current State & Open Work
 
-The application root directory is named `moments-app`. No packaging or zip delivery is required.
+Migration to Wails is code-complete and device-verified for the core loop (import, image + **video playback**, native dialogs, dark UI). Work happens on branch `migrated-to-wails`. See `WAILS_MIGRATION_PLAN.md` for the milestone log and `docs/wails-qa-checklist.md` for remaining QA.
+
+### Open
+- **Runtime QA** on Linux + Windows: full export on each encoder, **Spike C** (caption/transform preview↔export parity on WebKitGTK), workflows, close/single-instance. Run the CI to build + smoke-test the Windows NSIS installer.
+- **Phase B:** on-canvas transform gizmo (drag/resize/rotate handles) — Phase A is sliders only.
+- Optional cleanup: de-dupe fonts (still embedded in the web bundle **and** shipped external), Linux AppImage (could bundle the GStreamer codecs), result-preview via the media server instead of a base64 `readFile`.
+
+### Tooling — offscreen-render calibration harness
+For any "does the export match the preview" question, there's a verified method (used to nail caption baselines + transform geometry): render a **replica of the preview CSS** in **headless Chromium** (reusable `calib-chromium` Docker image), render the **FFmpeg export** of the same content, and **pixel-compare** with Python/PIL. ⚠️ Note: the app's webview is **WebKitGTK on Linux** (not Blink), so re-validate caption/transform geometry against WebKitGTK — the Chromium harness is an approximation there, not an exact proxy.
+
+---
 
 ## claude code
-- All work is done within this project folder (`/home/sysoper/workspace/jb-gh/Moments`). Do not create files outside this directory.
-- No packaging or zip creation is needed. Do not run `npm run build`, `npm run build:linux`, `npm run build:win`, or any installer/zip packaging commands.
+- All work is done within this project folder. Do not create files outside it.
+- **Builds/validation run in the Docker toolchain image** (`wails build` / `go test` / `npm`), never on the host — the host toolchain is restricted. See `WAILS_MIGRATION_PLAN.md` for the exact build command (writable Go caches, uid 1000).
 - Review and edit files in place as they exist in this repository.
 
 ---
@@ -129,60 +109,37 @@ The application root directory is named `moments-app`. No packaging or zip deliv
 ## File Structure
 
 ```
-moments-app/
-├── electron/
-│   ├── main.js                          # Main process — GPU detection, FFmpeg spawn, IPC handlers, prefs
-│   └── preload.js                       # Context bridge — typed safe API for renderer
-├── public/
-│   ├── favicon.svg
-│   ├── icon.png                         # 256×256 PNG app icon — used for Windows and Linux builds
-│   ├── icons.svg
-│   ├── app-info.json                    # About modal config (name, purpose, createdBy, version, etc.)
-│   └── ffmpeg/
-│       └── fonts/                       # Fonts available to FFmpeg drawtext (bundled into installer)
-│           ├── BebasNeue / Anton / Oswald-Regular.ttf      # video display faces (OFL)
-│           ├── Montserrat-Regular.ttf / Bold               # OFL
-│           ├── Roboto-Regular.ttf / Bold                   # Apache 2.0
-│           ├── Poppins-Regular.ttf / Bold
-│           ├── LiberationSans-Regular.ttf / Bold
-│           ├── LiberationSerif-Regular.ttf
-│           └── LiberationMono-Regular.ttf
-├── src/
-│   ├── main.jsx
-│   ├── App.jsx                          # Top-level layout + event wiring
-│   ├── App.module.css / App.css
-│   ├── index.css                        # Design tokens + global reset
-│   ├── ErrorBoundary.jsx
-│   ├── textLayout.js                    # Shared wrap/measure (preview==export) + font hash/family helpers
-│   ├── fontCoverage.js                  # sfnt cmap parser + fontFallbackText (□ for unsupported glyphs)
-│   ├── hooks/
-│   │   ├── useMediaStore.js             # All clip/media/text/music/quality state + workflow save/load
-│   │   ├── useFFmpeg.js                 # Native FFmpeg wrapper + full export pipeline (IPC-based)
-│   │   └── useAudioPeaks.js             # Decodes music File → min/max peak array (timeline waveform)
-│   └── components/
-│       ├── Topbar.jsx / .module.css     # Quality + aspect ratio selectors; logo opens About modal
-│       ├── AboutModal.jsx / .module.css # About modal — fetches app-info.json at runtime
-│       ├── MediaPanel.jsx / .module.css # Media library with multi-select + native file dialog
-│       ├── Preview.jsx / .module.css    # Viewport preview — defines visual contract; plays music synced to playhead
-│       ├── Timeline.jsx / .module.css   # exportDuration chip; music waveform lane; zoom
-│       ├── Inspector.jsx / .module.css  # Clip/text/music/fade settings (right panel)
-│       ├── ExportModal.jsx / .module.css # Export dialog — format + quality tier + bitrate + GPU selector, progress/ETA
-│       ├── GPUSelector.jsx / .module.css # Encoder selection UI
-│       └── LogDrawer.jsx / .module.css
-├── scripts/
-│   ├── download-ffmpeg.js               # Dev setup helper — fetches BtbN FFmpeg → bin/
-│   └── download-fonts.js                # Dev setup helper — fetches the CJK preset fonts → public/ffmpeg/fonts/
-├── bin/
-│   ├── linux/ffmpeg                     # Bundled FFmpeg binary — Linux x64 (git-ignored)
-│   └── win/ffmpeg.exe                   # Bundled FFmpeg binary — Windows x64 (git-ignored)
-├── package.json
-├── vite.config.js
-└── eslint.config.js
+Moments/
+├── main.go  app.go  fs.go  prefs.go  dialogs.go   # Go backend (Wails)
+├── ffmpeg.go  encoders.go  export.go  media.go  resources.go
+├── go.mod  go.sum  wails.json                     # Wails project + module
+├── build/                                         # Wails build assets (icons, NSIS installer template)
+├── Dockerfile                                     # Wails toolchain image (Go + WebKitGTK + Node + wails CLI)
+├── frontend/
+│   ├── index.html  vite.config.js  package.json
+│   ├── wailsjs/                                   # generated Go bindings + runtime
+│   └── src/
+│       ├── main.jsx  App.jsx  index.css
+│       ├── wailsShim.js                           # reconstructs window.electronAPI over Wails bindings
+│       ├── textLayout.js  fontCoverage.js
+│       ├── hooks/  components/                     # (see below)
+│       └── public/ → ffmpeg/fonts, icon.png, app-info.json
+├── electron-app-legacy/                           # archived prior shell (reference only)
+├── scripts/                                       # dev helpers (download-ffmpeg.js, download-fonts.js)
+└── bin/  linux/ffmpeg · win/ffmpeg.exe            # bundled FFmpeg (git-ignored)
 ```
+
+**`frontend/src/` key files**
+- `main.jsx` (imports `wailsShim.js` first), `App.jsx` (top-level layout + wiring), `index.css` (design tokens + `color-scheme: dark`).
+- `textLayout.js` (shared wrap/measure, preview==export), `fontCoverage.js` (cmap parser + □ for unsupported glyphs).
+- `hooks/`: `useMediaStore.js` (all clip/media/text/music/quality state + workflow save/load), `useFFmpeg.js` (builds the FFmpeg arg arrays + drives the export via the backend), `useAudioPeaks.js` (music waveform).
+- `components/`: `Topbar` (quality/aspect selectors), `AboutModal`, `MediaPanel` (library + native dialog), `Preview` (viewport — visual contract; synced music), `Timeline` (waveform lane + zoom), `Inspector` (clip/text/music/fade), `ExportModal` (format + tier + bitrate + GPU selector + progress/ETA), `GPUSelector`, `LogDrawer`.
+
+**Fonts** live in `frontend/public/ffmpeg/fonts/` (served to the preview by Vite; used by FFmpeg from disk). `frontend/public/` also holds `icon.png`, `icons.svg`, `favicon.svg`, `app-info.json`.
 
 ---
 
-## Design Tokens (`src/index.css`)
+## Design Tokens (`frontend/src/index.css`)
 
 All color, spacing, and radius values are CSS custom properties. Always use these; never hardcode values in component CSS.
 
@@ -233,9 +190,9 @@ Native FFmpeg has no threading restrictions. GPU encoders manage their own paral
 
 Source files, intermediate segments, and the final output all live in an OS temp directory created at the start of each export (`os.tmpdir()/moments_export_XXXXX`).
 
-**The main process (`electron/main.js`) must NOT delete this directory in its `cleanup()` function.** The renderer reads the output file via `api.readFile()` after `startExport()` resolves — deleting the temp dir in main's cleanup races with that read and causes ENOENT.
+**The Go backend (`export.go`) must NOT delete this directory.** The frontend reads the output file via `api.readFile()` after `startExport()` resolves — deleting the temp dir on the Go side races with that read and causes ENOENT. `StartExport` deliberately never removes the temp dir.
 
-The renderer's `finally` block owns cleanup: it reads the output, copies it to the user's chosen save path, then calls `api.rmdir(tmpDir)`.
+The frontend's `finally` block owns cleanup: it reads the output, copies it to the user's chosen save path, then calls `api.rmdir(tmpDir)`.
 
 ```
 Renderer finally block order (MUST NOT change):
@@ -326,7 +283,7 @@ On each export open, the main process runs `ffmpeg -encoders` to check compiled-
 
 ### Encoder quality args — `encoderQualityArgs(encoder, tier, bitrateMbps)`
 
-`electron/main.js`. The **Export modal** exposes three quality tiers; each maps to
+`encoders.go`. The **Export modal** exposes three quality tiers; each maps to
 a constant-quality target (CRF/CQ) + a speed↔efficiency preset, H.264 **high**
 profile + `yuv420p` for universal playback. A **custom bitrate** (Mbps), when set,
 overrides constant-quality with capped VBR (ABR + `-maxrate`/`-bufsize`). The tier
@@ -351,7 +308,7 @@ not in the workflow.
 
 ### Encoder intermediate args — `encoderIntermediateArgs(encoder)`
 
-`electron/main.js`. Near-lossless args for the Stage 1–4 intermediates so
+`encoders.go`. Near-lossless args for the Stage 1–4 intermediates so
 generational loss doesn't compound (the cause of pixelated/banded transitions).
 Same flag families as the quality args (cq/global_quality/vbr_peak/crf):
 
@@ -385,58 +342,46 @@ counter that advanced as steps were merely *queued*. ETA surfaces in the modal.
 
 ---
 
-## IPC Architecture
+## Backend API (Go bindings + shim)
 
 ```
-Renderer (React)
-  └─ window.electronAPI.*          (injected by preload.js via contextBridge)
+Frontend (React)
+  └─ window.electronAPI.*      (frontend/src/wailsShim.js — a device-API façade)
+        ↓  maps to
+  window.go.main.App.*         (Wails-generated bindings) + window.runtime events
         ↓
-  Electron Main Process (electron/main.js)
-  ├─ gpu:detect       → detectGPUCapabilities() → smoke-tests each encoder
-  ├─ gpu:reset        → clears cached GPU caps
-  ├─ ffmpeg:export    → resolves encoder tokens, spawns FFmpeg, streams logs back
-  ├─ ffmpeg:cancel    → kills active FFmpeg process
-  ├─ fs:readFile      → returns base64-encoded file contents
-  ├─ fs:writeFile     → writes base64-encoded data to path
-  ├─ fs:copyFile      → copies file to save path
-  ├─ fs:deleteFile    → deletes file
-  ├─ fs:mkdtemp       → creates temp directory, returns path
-  ├─ fs:rmdir         → recursively removes directory
-  ├─ fs:fontPath      → resolves bundled font path (resources/ in production)
-  ├─ dialog:saveFile  → shows native OS save dialog
-  ├─ dialog:openFiles → native open dialog; returns { name, path, mime, size } (NO bytes)
-  ├─ prefs:get        → reads a key from persistent prefs.json in userData dir
-  ├─ prefs:set        → writes a key to persistent prefs.json
-  └─ shell:openPath   → opens file in system default app
+  Go backend (methods on the App struct)
+  ├─ DetectGPU / ResetGPU   → ffmpeg -encoders parse + 1-frame smoke-tests (ffmpeg.go)
+  ├─ StartExport / CancelExport → resolve encoder tokens, spawn FFmpeg, stream events (export.go)
+  ├─ ReadFile / WriteFile   → base64 file read / write            (fs.go)
+  ├─ CopyFile / DeleteFile / FileExists / Mkdtemp / Rmdir          (fs.go)
+  ├─ FontPath / ResourcesPath → bundled font / resource paths      (resources.go)
+  ├─ OpenFilesDialog        → native open; returns { name, path, mime, size } (NO bytes)
+  ├─ SaveFileDialog / OpenPath → native save dialog / shell open   (dialogs.go)
+  ├─ GetPrefs / SetPrefs    → persistent prefs.json                (prefs.go)
+  ├─ FFmpegCheck / MediaBase / Platform                            (ffmpeg.go / media.go / app.go)
+  └─ ForceClose / ConfirmCloseAck  → close-confirm flow            (app.go)
 
-Plus, exposed on the preload bridge (not ipc handlers):
-  ├─ pathForFile(file)   → webUtils.getPathForFile — OS path of a drag-dropped / <input> File
-  └─ confirmCloseAck()   → renderer-alive ack for the close watchdog (see Window close)
+Events (Go → frontend, via window.runtime): ffmpeg:log / stepStart / stepDone /
+encoderInfo (export progress), files:dropped (OnFileDrop), app:confirm-close.
 ```
 
-### `media://` protocol — imported media served off disk
+The shim exposes the same method names the components already call (`api.readFile`, `api.startExport`, `api.onLog`, …). `pathForFile` returns `null` under Wails — a webview can't map a `File` to a path; OS drag-drop paths arrive out-of-band via `OnFileDrop` instead.
 
-Imported videos/photos are **never read into the renderer as bytes** — that base64
-round-trip OOM'd on large imports (20+ clips). Instead:
+### Media serving — imported media off disk (loopback HTTP server)
 
-- `electron/main.js` registers a privileged `media://` scheme
-  (standard+secure+stream+supportFetchAPI) and a `protocol.handle` that maps
-  `media://m/<encodeURIComponent(absPath)>` → `net.fetch(file://…)`, **forwarding the
-  Range header** so `<video>` seeking works.
-- A library item / clip carries `path` (absolute, Electron) **and** `url` (the
-  `media://…` string the DOM renders). Export copies from `path` (`fs:copyFile` →
-  temp) instead of writing renderer-held bytes. Bytes only enter the renderer in the
-  **browser/dev fallback** (no Electron): there a clip keeps a `File` + `blob:` url
-  and export base64-writes it (`writeFileToPath`).
-- **Music is exempt** — a single file imported via its own `<input>`, kept as a
-  `File` (the waveform decode needs the bytes); it still uses `blob:` + the
-  filename re-link flow.
+Imported videos/photos are **never read into the frontend as bytes** — that base64 round-trip OOM'd on large imports. Instead they're served off disk:
+
+- `media.go` runs a **loopback HTTP server** (`http://127.0.0.1:<port>`) whose handler serves `/media/<base64url(absPath)>` via `http.ServeContent` (HTTP **Range** → `<video>` seeking). `App.MediaBase()` returns the base URL; the shim caches it in `window.__MOMENTS_MEDIA_BASE`, and `useMediaStore.mediaUrlFor` builds `<base>/media/<b64>`.
+- **Why a real HTTP server (not the Wails `wails://` asset scheme):** on Linux, WebKitGTK plays `<video>`/`<audio>` through **GStreamer**, which fetches URIs with its own source elements and has **no source for a custom scheme** → `<video>` fails (MEDIA_ERR_SRC_NOT_SUPPORTED). `<img>` works via WebKit's own loader, so images *seem* fine while video is blank. Serving over `http://127.0.0.1` (a trustworthy origin, no mixed-content block) gives GStreamer a URI it can fetch. Works on Windows/WebView2 too. (The Wails AssetServer also has a `/media` handler kept as an `<img>` fallback.)
+- A library item / clip carries `path` (absolute) **and** `url` (the media-server URL the DOM renders). Export copies from `path` (`CopyFile` → temp), so bytes never enter the frontend. In a plain browser (no Wails runtime) a clip keeps a `File` + `blob:` url and export base64-writes it (`writeFileToPath`).
+- **Music is exempt** — a single file imported via its own `<input>`, kept as a `File` (the waveform decode needs the bytes); it still uses `blob:` + the filename re-link flow.
 
 ---
 
 ## Persistent Preferences
 
-A flat `prefs.json` file is stored in `app.getPath('userData')`:
+A flat `prefs.json` file is stored in the OS user-config dir (Go `os.UserConfigDir()` + `moments-app/`, in `prefs.go`):
 - Linux: `~/.config/moments-app/prefs.json`
 - Windows: `%APPDATA%\moments-app\prefs.json`
 
@@ -540,7 +485,7 @@ endFadeAudioDuration: number   // 0.5–5s
 
 `saveWorkflow()` serialises to JSON. `loadWorkflow(json)` handles older versions automatically. Version guard logs a warning for versions > 13 but still attempts load. Media **bytes are never embedded** (only custom-font bytes are, as a base64 table).
 
-**Auto-relink (v13+):** each clip saves its absolute source `path`. On load, an async pass calls `fs:exists` for each path and, where the file still exists, rebuilds the library item (served via `media://`) and links the clip — **no manual re-add**. Where the path is gone (file moved / another machine / browser-saved with no path), the clip stays `_needsMedia` and falls back to filename re-link.
+**Auto-relink (v13+):** each clip saves its absolute source `path`. On load, an async pass calls `api.fileExists` for each path and, where the file still exists, rebuilds the library item (served via the media server) and links the clip — **no manual re-add**. Where the path is gone (file moved / another machine / browser-saved with no path), the clip stays `_needsMedia` and falls back to filename re-link.
 
 `mediaId` is **not** a stable key. The re-link fallback matches on **filename** (`c.name`). Music is always filename-relink (no path persisted yet — documented follow-up).
 
@@ -696,7 +641,7 @@ const XFADE_MAP = {
 
 ## Preset Fonts
 
-All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via `extraResources`. At runtime, **export** resolves them via `api.fontPath(fontFile)` (→ `resources/ffmpeg/fonts/`), and the **preview** registers each one with an injected `@font-face` whose `url()` must be **base-relative** (`import.meta.env.BASE_URL + 'ffmpeg/fonts/…'`) — an absolute `/ffmpeg/fonts/…` path 404s in the packaged `file://` app and silently falls back to sans-serif. Preset order in `PRESET_FONTS` (`useFFmpeg.js`) is the dropdown order. `cjk: true` marks a face that can render CJK (see CJK rendering below).
+All fonts live in `frontend/public/ffmpeg/fonts/`. At runtime, **export** (FFmpeg) reads them from disk via `api.fontPath(fontFile)` — `resources.go` resolves the dev path (`frontend/public/ffmpeg/fonts`) or the packaged path (`<install>/ffmpeg/fonts`, placed there by the installer/CI). The **preview** registers each one with an injected `@font-face` whose `url()` must be **base-relative** (`import.meta.env.BASE_URL + 'ffmpeg/fonts/…'`); Vite serves them (they're embedded in the built bundle). Preset order in `PRESET_FONTS` (`useFFmpeg.js`) is the dropdown order. `cjk: true` marks a face that can render CJK (see CJK rendering below).
 
 | Key | Label | File | License/Source |
 |---|---|---|---|
@@ -723,7 +668,7 @@ All fonts live in `public/ffmpeg/fonts/` and are bundled into the installer via 
 
 > The 6 CJK preset fonts (Noto JP/TC/SC/KR, Taipei Sans, GenSeki) **are committed** in `public/ffmpeg/fonts/` (~77 MB total). To re-fetch the Noto ones: `node scripts/download-fonts.js`; Taipei Sans + GenSeki are manual (links in the script header). Filenames must match the table.
 
-**CJK rendering — WYSIWYG (`src/fontCoverage.js`):** The selected font is **always honored** — there is **no** silent substitution to a different CJK font. Any codepoint the chosen font can't render is shown as the block char **□** (tofu) in **both** the preview and the export, so preview == export (FFmpeg `drawtext` has no per-glyph fallback). Coverage is decided by `fontFallbackText()`: preset fonts via the `cjk` flag (a Latin preset → its CJK chars become □; a `cjk: true` face keeps the text), custom uploads via an sfnt `cmap` parse (`parseFontCoverage`, formats 0/4/6/12, cached by family; WOFF/WOFF2 are compressed → "unknown" → no tofu). The preview mirrors the export exactly: `famFor` returns the selected family and the same `fontFallbackText` sanitizes the wrapped text. The Inspector shows a **warning** (`hasUnsupportedGlyphs`) when a caption has glyphs its font can't render. So: pick Noto Sans TC for Traditional Chinese → you see it; leave a Latin font on CJK text → you see □ + the warning. **Note:** `.otf`/`.ttc` need the matching `@font-face` `format()` (`opentype`/`collection`) in `loadPreviewFont`, and the `extraResources`/`files` globs must include `**/*.otf` and `**/*.ttc`. The preview re-renders on `document.fonts.ready` so wrapping/measuring re-runs in the real face once a font finishes loading.
+**CJK rendering — WYSIWYG (`src/fontCoverage.js`):** The selected font is **always honored** — there is **no** silent substitution to a different CJK font. Any codepoint the chosen font can't render is shown as the block char **□** (tofu) in **both** the preview and the export, so preview == export (FFmpeg `drawtext` has no per-glyph fallback). Coverage is decided by `fontFallbackText()`: preset fonts via the `cjk` flag (a Latin preset → its CJK chars become □; a `cjk: true` face keeps the text), custom uploads via an sfnt `cmap` parse (`parseFontCoverage`, formats 0/4/6/12, cached by family; WOFF/WOFF2 are compressed → "unknown" → no tofu). The preview mirrors the export exactly: `famFor` returns the selected family and the same `fontFallbackText` sanitizes the wrapped text. The Inspector shows a **warning** (`hasUnsupportedGlyphs`) when a caption has glyphs its font can't render. So: pick Noto Sans TC for Traditional Chinese → you see it; leave a Latin font on CJK text → you see □ + the warning. **Note:** `.otf`/`.ttc` need the matching `@font-face` `format()` (`opentype`/`collection`) in `loadPreviewFont`; the installer/CI that stages `frontend/public/ffmpeg/fonts` must include `*.otf`/`*.ttc`. The preview re-renders on `document.fonts.ready` so wrapping/measuring re-runs in the real face once a font finishes loading.
 
 ---
 
@@ -743,7 +688,7 @@ Grid of thumbnails. Each thumbnail has a persistent checkbox (dimmed when unchec
 
 ### Native file dialog
 
-The `+` button opens a native OS file picker via `api.openFilesDialog()`, which returns **path descriptors** (`{ name, path, mime, size }`) — not bytes (see `media://` protocol). The last used directory is persisted to `prefs.json` and pre-filled on each open. The `<input type="file">` fallback (non-Electron) yields browser `File`s; `filesToEntries()` resolves each to a path via `api.pathForFile` when in Electron, else keeps the `File`. `useMediaStore.toMediaSource()` normalizes both into `{ path|file, url }`.
+The `+` button opens a native OS file picker via `api.openFilesDialog()`, which returns **path descriptors** (`{ name, path, mime, size }`) — not bytes (see Media serving). The last used directory is persisted to `prefs.json` and pre-filled on each open. OS files can also be **dragged onto the window** (Wails `OnFileDrop` → `files:dropped` → added to the library). The `<input type="file">` fallback (plain browser, no Wails runtime) yields browser `File`s. `useMediaStore.toMediaSource()` normalizes both into `{ path|file, url }`.
 
 ### Background Music Player
 
@@ -792,53 +737,38 @@ Two independent checkboxes with duration sliders (0.5–5s each): Fade to black 
 
 ## Building Installers
 
+Builds run in the Docker toolchain image (`wails build`). CI does the release
+builds — see `.github/workflows/wails-build.yml`.
+
 ```bash
-npm run build:linux   # → dist-electron/*.AppImage
-npm run build:win     # → dist-electron/*Setup*.exe (per-user NSIS installer)
-npm run build:all     # Both
+# Linux binary (in the toolchain container):
+wails build -tags webkit2_41                 # → build/bin/Moments
+# Windows per-user NSIS installer (native Windows only — see below):
+wails build -platform windows/amd64 -nsis    # → build/bin/Moments-amd64-installer.exe
 ```
 
 ### App icon
 
-The icon is `public/icon.png` — a 256×256 RGBA PNG. electron-builder converts it to `.ico` (Windows) and the appropriate sizes for AppImage (Linux) automatically. **Do not point the icon config at the SVG** — electron-builder's icon converter cannot process SVG.
+The icon source is `build/appicon.png` (256×256 RGBA PNG, copied from `frontend/public/icon.png`). Wails generates the Windows `.ico` from it at build time. Don't point the icon at an SVG — the converter needs a raster PNG.
+
+### Bundled resources (ffmpeg + fonts)
+
+Wails embeds the frontend but not native resources, so the FFmpeg binary + fonts are shipped **beside the executable** and resolved by `resources.go` (`<install>/ffmpeg/ffmpeg[.exe]`, `<install>/ffmpeg/fonts/`). The Windows NSIS template copies them; CI stages them into the Linux tarball. (Fonts are currently *also* embedded in the web bundle for the preview — a de-dupe follow-up.)
 
 ### Windows target — per-user NSIS installer
 
-The Windows target is **NSIS**, configured as a **per-user** installer:
+Configured in `build/windows/installer/project.nsi`:
 
-| `nsis` key | Value | Effect |
-|---|---|---|
-| `perMachine` | `false` | Installs to `%LOCALAPPDATA%\Programs\moments-app` — **no admin / UAC** |
-| `allowElevation` | `false` | Never prompts to elevate; strictly user-level |
-| `oneClick` | `false` | Assisted wizard (with a progress/finish page) |
-| `allowToChangeInstallationDirectory` | `true` | User can pick the folder |
-| `createDesktopShortcut` / `createStartMenuShortcut` | `true` | Shortcuts |
-| `deleteAppDataOnUninstall` | `false` | Preserves `prefs.json` across upgrades/uninstall |
+| Setting | Effect |
+|---|---|
+| `REQUEST_EXECUTION_LEVEL "user"` | Installs to `%LOCALAPPDATA%\Programs\Moments` — **no admin / UAC** |
+| `InstallDir $LOCALAPPDATA\Programs\Moments` | Per-user location |
+| `File` directives after `wails.files` | Bundle `bin/win/ffmpeg.exe` + fonts into `$INSTDIR\ffmpeg` |
+| uninstall removes `$INSTDIR` only | Preserves `prefs.json` in `%APPDATA%\moments-app` |
 
-**Upgrade-in-place:** electron-builder keys the installer on the `appId`
-(`com.moments.app`) GUID, so installing a newer build **detects and replaces the
-existing install** rather than going side-by-side — only the updated app remains,
-prefs preserved. (No auto-update yet; that would be a separate electron-updater +
-GitHub Releases piece.)
+**Upgrade-in-place:** a fixed `InstallDir` + per-user uninstall key means installing a newer build overwrites the existing install rather than going side-by-side — only the updated app remains, prefs preserved. (No auto-update yet.)
 
-**Why it must build on Windows:** NSIS uninstaller-stub generation **fails when
-cross-compiling from Linux** — electron-builder has to *execute* a temp uninstaller
-stub (under Wine) to emit `…__uninstaller.exe`, which doesn't run in the Linux/
-container build, so the installer step dies with `File: "…__uninstaller.exe" -> no
-files found`. So the installer is built on the `windows-latest` CI runner (native).
-
-**Local Linux smoke build:** run **`npm run build:win:portable`** — it overrides the
-target to `portable` (`electron-builder --win -c.win.target=portable`, no uninstaller
-step) without touching the shipping NSIS config. (The preserved `_win_portable`
-config block is the equivalent manual swap.) The old `portable` target's slow
-startup — it unpacks the whole app to `%TEMP%` on every launch — is the reason for
-moving to a real installer for distribution.
-
-### Windows cross-compilation from Linux
-
-```bash
-apt-get install -y wine wine64 libwine mono-runtime
-```
+**Why it builds on Windows CI:** the Windows binary needs CGO (WebView2 bindings) which can't cross-compile from Linux (no mingw), and NSIS runs natively there. So the installer is built on the `windows-latest` runner (`choco install nsis` + `wails build -nsis`).
 
 ---
 
@@ -882,14 +812,7 @@ FFmpeg's `drawtext` filter uses `:` as its option separator. Windows drive lette
 Caption text was inlined as `drawtext=…:text='<escaped>'`. The escape pass ran in the wrong order (`'` → `\'` *before* `\` → `\\`), so an apostrophe became `It\\'s`, whose `'` closed the quote early and produced an invalid `-vf` chain. Because **all** captions share one `-vf` chain, one bad caption made the whole text pass fail → the `s3-text` `fallbackOnFail` copied the video through with **zero overlays**. Reported as "text doesn't show, especially with trimmed clips / a mix of fonts" — really any caption containing `'`, `:`, `,`, `[`, `]`, `%`, or `\`. Fixed by **not inlining text at all**: each caption is written to `text_N.txt` in the temp dir and referenced via drawtext `textfile=` (only the path is escaped, via the same `escPath` used for fonts), plus `expansion=none` so drawtext does no `%{...}` expansion on the file content (a bare `%` like "100%" otherwise throws "Stray %"). Verified with a multi-font, multi-caption smoke test covering all the above characters.
 
 ### CJK (Korean/Chinese/Japanese) text overlays missing from export
-Captions in Korean/Chinese rendered fine in the preview but exported as blank/tofu — only Latin text showed. Cause: every bundled preset font is Latin-only, and FFmpeg `drawtext` uses one font face per caption with no per-glyph fallback, so it draws `.notdef` boxes (or nothing) for CJK codepoints. The preview "worked" only because the browser does CSS per-glyph fallback to OS fonts. Fixed by bundling `NotoSansCJKkr-Regular.otf` (OFL; Latin + Hangul + Han + kana) and auto-routing any caption matching `hasCJK()` to it on export — same on Linux and Windows. Required three companion changes: `loadPreviewFont` must emit `format('opentype')` for `.otf`, the `extraResources` font filter must include `**/*.otf`, and the preview font stack appends `'MomNotoCJK'` (lazy-loaded when CJK is present) so preview ≈ export. Verified with FFmpeg renders of Korean/Chinese/mixed strings.
+Captions in Korean/Chinese rendered fine in the preview but exported as blank/tofu — only Latin text showed. Cause: every bundled preset font is Latin-only, and FFmpeg `drawtext` uses one font face per caption with no per-glyph fallback, so it draws `.notdef` boxes (or nothing) for CJK codepoints. The preview "worked" only because the browser does CSS per-glyph fallback to OS fonts. Fixed by bundling `NotoSansCJKkr-Regular.otf` (OFL; Latin + Hangul + Han + kana) and auto-routing any caption matching `hasCJK()` to it on export — same on Linux and Windows. Required three companion changes: `loadPreviewFont` must emit `format('opentype')` for `.otf`, the font-staging must include `.otf` files, and the preview font stack appends `'MomNotoCJK'` (lazy-loaded when CJK is present) so preview ≈ export. Verified with FFmpeg renders of Korean/Chinese/mixed strings.
 
 > **Superseded by WYSIWYG (current behavior):** the auto-route-to-Noto-CJK fallback was later removed in favor of honoring the selected font and showing □ for glyphs it can't render (selectable CJK fonts now exist: Noto JP/TC/SC/KR, Taipei Sans, GenSeki). See **CJK rendering** under Preset Fonts and `src/fontCoverage.js`.
 
-### Windows build icon error
-`package.json` pointed `win.icon` and `linux.icon` at `public/favicon.svg`. electron-builder's icon converter cannot process SVG. Fixed by generating `public/icon.png` (256×256 RGBA PNG from the SVG) and pointing both targets at it.
-
-### Windows build NSIS uninstaller error
-`win.target` was set to `nsis`. NSIS uninstaller stub generation fails when cross-compiling from Linux. Originally fixed by switching the default target to `portable`.
-
-> **Superseded (current behavior):** the Windows target is now a **per-user NSIS installer** again — built on the `windows-latest` CI runner (native Windows), where the uninstaller stub generates fine. The cross-compile failure only ever affected *local Linux* builds; the `portable` config is preserved as `_win_portable` for that case. The switch was made because the portable `.exe` unpacks the whole app to `%TEMP%` on every launch (slow startup). See **Windows target — per-user NSIS installer**.

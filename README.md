@@ -17,12 +17,11 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 **GPU priority:** NVIDIA NVENC → AMD AMF → Intel Quick Sync (iGPU) → CPU (libx264)
 
 > [!NOTE]
-> **Migrating to Wails (Go).** The app is moving from Electron to **Wails v2**
-> (Go backend + native webview) on branch `migrated-to-wails`, reusing this React
-> frontend (now under `frontend/`). Build with `wails build` (toolchain in the root
-> `Dockerfile`). The frozen Electron version lives in `electron-app-legacy/`. See
-> [`WAILS_MIGRATION_PLAN.md`](WAILS_MIGRATION_PLAN.md) and
-> [`docs/wails-qa-checklist.md`](docs/wails-qa-checklist.md).
+> **Built with [Wails v2](https://wails.io)** — a Go backend + the OS-native
+> webview (WebView2 on Windows, WebKitGTK on Linux), with a React/Vite frontend in
+> `frontend/`. Build with `wails build` in the Docker toolchain (`Dockerfile`). See
+> [`WAILS_MIGRATION_PLAN.md`](WAILS_MIGRATION_PLAN.md) for the architecture and
+> [`docs/wails-qa-checklist.md`](docs/wails-qa-checklist.md) for QA + runtime deps.
 
 ---
 
@@ -49,7 +48,7 @@ A cross-platform desktop photo & video slideshow editor with GPU-accelerated exp
 - NVIDIA NVENC detection over Windows RDP sessions (CUDA hwaccel hint)
 - Workflow save/load (JSON, version 12)
 - 480p / 720p / 1080p · 16:9 / 9:16
-- Exit button with confirmation dialog (frameless Electron window on Windows)
+- Exit button with confirmation dialog
 
 ---
 
@@ -129,119 +128,47 @@ The two Taiwanese faces are manual (their hosts don't allow scripted download) �
 | 源石黑體 GenSekiGothic | https://font.emtech.cc/fonts/GenSekiGothicTW | `GenSekiGothicTW-Regular.otf` |
 | 台北黑體 Taipei Sans | https://sites.google.com/view/jtfoundry/zh-tw/downloads | `TaipeiSansTCBeta-Regular.ttf` |
 
-Filenames must match the entries in `PRESET_FONTS` (`src/hooks/useFFmpeg.js`). Custom-uploaded fonts are embedded (base64) in saved workflows, so they re-link on reload.
+Filenames must match the entries in `PRESET_FONTS` (`frontend/src/hooks/useFFmpeg.js`). Custom-uploaded fonts are embedded (base64) in saved workflows, so they re-link on reload.
 
 ---
 
-## Development
+## Development & Building (Wails)
+
+All builds run in the **Docker toolchain image** (`Dockerfile`: Go + WebKitGTK 4.0/4.1 + GTK3 + Node 24 + the `wails` CLI + NSIS). Build it once:
 
 ```bash
-npm install
-npm run dev       # Vite on :5173 + Electron
+docker build -t moments-wails .
 ```
 
-Hot reload works for renderer changes. Restart the process for `electron/main.js` or `electron/preload.js` changes.
-
----
-
-## Building
+Then build the Linux binary (place FFmpeg at `bin/linux/ffmpeg` first — see [FFmpeg Setup](#ffmpeg-setup)):
 
 ```bash
-npm run build:linux   # → dist-electron/Moments-<ver>.AppImage
-npm run build:win     # → dist-electron/Moments Setup <ver>.exe  (per-user NSIS installer)
-npm run build:all     # Both
+docker run --rm -u 1000:1000 -e HOME=/tmp \
+  -e GOMODCACHE=/gomod -e GOCACHE=/gocache \
+  -v moments-gomod:/gomod -v moments-gocache:/gocache \
+  -v "$PWD":/app -w /app moments-wails \
+  wails build -tags webkit2_41            # → build/bin/Moments
 ```
+
+- `-tags webkit2_41` links WebKitGTK **4.1** (Debian 13 / Ubuntu 24.04+ dropped 4.0).
+- The named `moments-gomod` / `moments-gocache` volumes persist the Go module + build caches across runs (`GOPATH=/go` in the base image is root-owned, so caches are redirected to writable paths).
+- **Dev with hot reload** (needs a display): `wails dev`.
+
+### Linux runtime dependencies
+
+A Wails Linux app uses the system WebKitGTK + GStreamer, so the machine running it needs:
+
+```bash
+sudo apt install libwebkit2gtk-4.1-0 libgtk-3-0t64 \
+                 gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
+                 gstreamer1.0-plugins-ugly gstreamer1.0-libav
+```
+
+The GStreamer packages provide H.264/AAC decoding — **without them, MP4 videos render blank** (still images are fine). Windows/WebView2 has these built in.
 
 ### Windows installer (per-user NSIS)
 
-The Windows output is a **per-user NSIS installer**: it installs to
-`%LOCALAPPDATA%\Programs\moments-app` **without admin rights**, adds Start-menu /
-desktop shortcuts, and **upgrades any existing install in place** (only the
-updated app remains; settings are preserved). It is built on the **`windows-latest`
-GitHub Actions runner** (native Windows) — see `.github/workflows/build.yml`.
-
-> **Building on Linux:** NSIS uninstaller-stub generation fails when
-> cross-compiling from Linux (electron-builder can't execute the uninstaller stub,
-> so the build dies with `…__uninstaller.exe -> no files found`). For a quick local
-> smoke build, run the portable target instead — no uninstaller step:
-> ```bash
-> npm run build:win:portable     # → dist-electron/*.exe (portable, builds on Linux)
-> ```
-> Wine is still required for that path:
-> ```bash
-> apt-get install -y wine wine64 libwine mono-runtime
-> wine --version   # should print wine-6.x or higher
-> ```
-
----
-
-## Docker Build Environment
-
-A `Dockerfile` is included for building the app from any Linux host without polluting your local environment. The image bundles:
-
-- **Node.js 24** (slim base)
-- **Wine + Mono** — required for the local Windows portable-exe smoke build from Linux (the `_win_portable` target; the shipping NSIS installer builds on the Windows CI runner)
-- **Electron binary pre-cached** — downloads and caches the Electron zip at image-build time so `npm install` inside the container does not re-download it on every run
-
-### 1 — Build the image
-
-Run this once from the repository root. The image tag must match the one used in the run commands below.
-
-```bash
-docker build -t electron-app:builtin-packages .
-```
-
-> The build step downloads the Electron binary (~100 MB) and installs npm dependencies into the image layer. Subsequent runs reuse the cache and are fast.
-
-### 2 — Run a build
-
-The project directory is mounted as a volume so build output lands directly in `dist-electron/` on the host. FFmpeg binaries must already be present in `bin/` before running (see [FFmpeg Setup](#ffmpeg-setup)).
-
-> **Cache the electron-builder toolchain.** The `-v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache` flags below persist electron-builder's downloaded tools (winCodeSign, NSIS, app-builder) in a named Docker volume. Without them, `--rm` discards the cache and these are re-downloaded on every run. See [Build caching](#build-caching) below.
-
-**Linux AppImage:**
-```bash
-docker run --rm -it \
-  -v $(pwd):/app \
-  -v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache \
-  -w /app \
-  electron-app:builtin-packages /bin/bash -c "npm install && npm run build:linux"
-```
-
-**Windows portable exe** (cross-compiled via Wine):
-```bash
-docker run --rm -it \
-  -v $(pwd):/app \
-  -v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache \
-  -w /app \
-  electron-app:builtin-packages /bin/bash -c "npm install && npm run build:win"
-```
-
-**Both targets in one pass:**
-```bash
-docker run --rm -it \
-  -v $(pwd):/app \
-  -v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache \
-  -w /app \
-  electron-app:builtin-packages /bin/bash -c "npm install && npm run build:all"
-```
-
-### Build caching
-
-Because the container runs with `--rm`, anything written to its filesystem is discarded when it exits. electron-builder downloads its toolchain (winCodeSign, NSIS/nsis-resources — used even for the portable target — and app-builder) into `~/.cache/electron-builder` at build time, so without a persistent cache it re-downloads them every run.
-
-The `-v moments-eb-cache:/eb-cache -e ELECTRON_BUILDER_CACHE=/eb-cache` flags fix this: a **named** Docker volume (`moments-eb-cache`, auto-created on first use) holds the cache between runs, and `ELECTRON_BUILDER_CACHE` points electron-builder at it. The Electron binary itself is already baked into the image (`~/.cache/electron`), so it isn't affected.
-
-- Only the **first** build downloads the toolchain; later builds reuse it.
-- To inspect or reset the cache: `docker volume inspect moments-eb-cache` / `docker volume rm moments-eb-cache`.
-- Don't replace the named volume with a bind mount on `~/.cache` (e.g. `-v $(pwd)/.cache:/root/.cache`) — a bind mount starts empty and would shadow the image's pre-cached Electron binary, forcing *that* to re-download too.
-- Optional: add `-v moments-npm:/root/.npm` to also cache npm's download metadata across runs.
-
-### Notes
-
-- `npm install` is run inside the container on each invocation because native addons must be compiled for the container's glibc, not the host's. The installed `node_modules` are written into the mounted volume and will appear on the host — this is expected.
-- Build output is written to `dist-electron/` in the mounted volume, so the AppImage / exe are immediately accessible on the host after the container exits.
-- The `--rm` flag removes the container after each run. No state is kept between runs except what is written back through the volume mount (and the named cache volume above).
+The Windows output is a **per-user NSIS installer** (`build/windows/installer/project.nsi`): it installs to `%LOCALAPPDATA%\Programs\Moments` **without admin rights**, adds shortcuts, bundles the FFmpeg binary + fonts next to the app, and **upgrades any existing install in place** (settings preserved). It's built on the **`windows-latest` GitHub Actions runner** — see `.github/workflows/wails-build.yml`. It can't be cross-compiled from Linux (the Windows binary needs CGO/mingw + native NSIS).
 
 ---
 
@@ -278,26 +205,22 @@ The app detects and falls back gracefully if drivers are absent.
 ## Architecture
 
 ```
-moments-app/
-├── electron/
-│   ├── main.js        Main process — GPU detection, FFmpeg spawn, IPC, prefs, file dialogs
-│   └── preload.js     Context bridge — safe typed API for renderer
-├── src/
-│   ├── hooks/
-│   │   ├── useFFmpeg.js      Export pipeline — builds FFmpeg step lists, sends via IPC; progress/ETA
-│   │   ├── useMediaStore.js  All app state — clips, timeline, settings, workflow
-│   │   └── useAudioPeaks.js  Decodes music to a waveform peak array (timeline lane)
-│   └── components/
-│       ├── MediaPanel.jsx    Media library with multi-select, native file dialog
-│       ├── GPUSelector.jsx   Encoder picker shown in Export modal
-│       ├── ExportModal.jsx   Export dialog — idle state, progress, error + retry
-│       └── ...               Other components
-├── bin/
-│   ├── linux/ffmpeg          Bundled binary (git-ignored)
-│   └── win/ffmpeg.exe        Bundled binary (git-ignored)
-└── public/
-    ├── icon.png              App icon — 256×256 PNG used for both Windows and Linux builds
-    └── ffmpeg/fonts/         Font files for text overlays (bundled into installer)
+Moments/
+├── *.go               Go backend (Wails): app, fs, prefs, dialogs, ffmpeg,
+│                        encoders, export, media (loopback server), resources
+├── wails.json  build/ Wails project config + build assets (icons, NSIS template)
+├── frontend/
+│   ├── src/
+│   │   ├── wailsShim.js      Reconstructs window.electronAPI over the Wails bindings
+│   │   ├── hooks/
+│   │   │   ├── useFFmpeg.js      Builds FFmpeg step lists (with __ENCODER__ tokens); progress/ETA
+│   │   │   ├── useMediaStore.js  All app state — clips, timeline, settings, workflow
+│   │   │   └── useAudioPeaks.js  Decodes music to a waveform peak array (timeline lane)
+│   │   └── components/           MediaPanel, GPUSelector, ExportModal, Timeline, …
+│   └── public/
+│       ├── icon.png             App icon — 256×256 PNG
+│       └── ffmpeg/fonts/        Font files for text overlays
+└── bin/  linux/ffmpeg · win/ffmpeg.exe   Bundled FFmpeg (git-ignored)
 ```
 
 ### Export flow
@@ -308,18 +231,18 @@ moments-app/
    → GPUSelector shows available encoders
 
 2. User clicks Start Export
-   → Renderer writes source files to OS temp dir
-   → Renderer builds FFmpeg step list (args with __ENCODER__ tokens)
-   → api.startExport({ steps, encoderOverride }) → main process
+   → Frontend copies source files to an OS temp dir
+   → Frontend builds the FFmpeg step list (args with __ENCODER__ tokens)
+   → api.startExport({ steps, encoderOverride }) → Go backend
 
-3. Main process executes steps
-   → Resolves __ENCODER__ / __ENC_ARGS__ with detected encoder
+3. Go backend executes steps
+   → Resolves __ENCODER__ / __ENC_ARGS__ with the detected encoder
    → Spawns: ffmpeg -hide_banner [resolved args]
-   → Streams log lines back to renderer in real time
+   → Streams log lines back to the frontend in real time (events)
    → Steps with fallbackOnFail (e.g. audio-less clips) recover silently
 
 4. After all steps complete
-   → Renderer reads output.mp4 from temp dir
+   → Frontend reads output.mp4 from the temp dir
    → Native save dialog → user picks destination
    → File copied, temp dir cleaned up
 ```
@@ -335,7 +258,7 @@ moments-app/
 | NVENC not detected (NVIDIA GPU present) | Update to NVIDIA driver 522+. Launch from a terminal and check for `[GPU] smoke test failed …` — it prints the FFmpeg reason. Common causes: missing encode runtime lib (`libnvidia-encode`; note CUDA/AI workloads use a *different* lib), driver too old, or a datacenter GPU with no NVENC block. Over RDP the app auto-retries with `-hwaccel cuda`; otherwise use the GPU Selector to switch to CPU |
 | NVENC fails over Windows RDP | App retries smoke-test with `-hwaccel cuda` automatically. If still failing, switch to CPU in the Export modal GPU Selector |
 | QSV not detected (Intel iGPU present) | Install `intel-media-va-driver-non-free` (Linux) |
-| Windows build fails (NSIS error) | Target is `portable` by default for Linux cross-compile — this is correct. For a full installer, build on a native Windows machine using the `_win_nsis` config in `package.json` |
-| Wine not found for Windows cross-build | `apt-get install -y wine wine64 libwine mono-runtime` |
+| Videos blank on Linux (images OK) | Install the GStreamer codec plugins (see [Linux runtime dependencies](#linux-runtime-dependencies)) — WebKitGTK needs them to decode H.264/AAC |
+| App won't start on Linux | Install `libwebkit2gtk-4.1-0 libgtk-3-0t64`; the binary is built with `-tags webkit2_41` (4.0 was dropped on Debian 13 / Ubuntu 24.04+) |
+| Windows installer build | Built on the `windows-latest` CI runner (native) — can't cross-compile from Linux. See `.github/workflows/wails-build.yml` |
 | Text overlay export fails on Windows | Font paths with drive letters (e.g. `C:/...`) are escaped as `C\:/...` in the drawtext filter — this is correct. Do not remove the escaping |
-| White screen on launch | Check `electron/main.js` — verify Vite URL or `dist/index.html` path |
