@@ -66,8 +66,16 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       binary `build/bin/Moments`, bindings generated, real React app compiles under
       Vite with no electron-import snags. (85 MB because ~77 MB fonts are embedded
       via `frontend/public` → move to external resources in M4/M6.)
-- [ ] **M2 — Go backend bindings:** port the IPC surface (fs, dialogs, prefs,
-      fontPath, GPU detect, ffmpeg export/cancel) + the `window.electronAPI` JS shim.
+- [x] **M2 — Go backend bindings:** DONE (compiles + binds; runtime QA needs a
+      display). `prefs.go` (userConfigDir prefs.json), `fs.go` (read/write/copy/
+      delete/exists/mkdtemp/rmdir/resources/fontPath), `dialogs.go` (open/save/
+      openPath), `ffmpeg.go` (FFmpegCheck + DetectGPU encoder-parse + ResetGPU;
+      StartExport/CancelExport stubbed for M4), `app.go` (Platform + onBeforeClose/
+      ForceClose/ConfirmCloseAck), `resources.go`. `frontend/src/wailsShim.js`
+      reconstructs `window.electronAPI` on the injected `window.go`/`window.runtime`
+      globals; installed in `main.jsx` before render. All 22 methods bound; `wails
+      build` green. Deferred: DetectGPU HW smoke-tests + full export → M4;
+      `pathForFile`/drag-drop → M3.
 - [ ] **M3 — media:// equivalent** (AssetServer Range handler) + drag-drop/
       `pathForFile` real paths.
 - [ ] **M4 — Export pipeline wiring:** JS builds args; Go executes, streams
@@ -90,8 +98,14 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
   in-container → `build/bin/Moments` (85 MB). Build via:
   `docker run --rm -u 1000:1000 -e HOME=/tmp -e GOMODCACHE=/gomod -e GOCACHE=/gocache
   -v <scratch>/gomod:/gomod -v <scratch>/gocache:/gocache -v "$PWD":/app -w /app
-  moments-wails wails build`. **Next: M2** (Go backend bindings + `window.electronAPI`
-  shim) — start from the surface list above and `electron-app-legacy/electron/main.js`.
+  moments-wails wails build`.
+- **2026-07-02 (4)** — **M2 done.** Go backend (`prefs`/`fs`/`dialogs`/`ffmpeg`/
+  `app`/`resources`.go) + `frontend/src/wailsShim.js` reconstructing
+  `window.electronAPI` over `window.go`/`window.runtime`; wired in `main.jsx` before
+  render. All 22 methods bound, `wails build` green. Runtime QA (dialogs open, prefs
+  persist, media render) pending a display. **Next: M3** (media:// AssetServer Range
+  handler + OnFileDrop drag-drop paths) — the two things that make imported media
+  actually render/seek under Wails.
 
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is
