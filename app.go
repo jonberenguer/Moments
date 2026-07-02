@@ -3,7 +3,10 @@ package main
 import (
 	"context"
 	goruntime "runtime"
+	"sync"
+	"time"
 
+	"github.com/wailsapp/wails/v2/pkg/options"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -14,8 +17,11 @@ import (
 // for the original contract).
 type App struct {
 	ctx        context.Context
-	forceClose bool      // set by ForceClose() so onBeforeClose lets the window go
-	gpuCache   *GPUCaps  // detectGPU result, cached per session
+	forceClose bool     // set by ForceClose() so onBeforeClose lets the window go
+	gpuCache   *GPUCaps // detectGPU result, cached per session
+
+	watchdogMu    sync.Mutex
+	closeWatchdog *time.Timer // force-closes if the renderer never acks (wedged)
 }
 
 // NewApp creates a new App application struct.
@@ -46,6 +52,19 @@ func (a *App) startup(ctx context.Context) {
 	})
 }
 
+// onShutdown (wired via options.App.OnShutdown) — belt-and-suspenders so no
+// FFmpeg child outlives the app on any quit path.
+func (a *App) onShutdown(ctx context.Context) {
+	killAllExports()
+}
+
+// onSecondInstance (wired via SingleInstanceLock) focuses the existing window
+// when a second launch is attempted, instead of spinning up a rival process.
+func (a *App) onSecondInstance(_ options.SecondInstanceData) {
+	wruntime.WindowUnminimise(a.ctx)
+	wruntime.Show(a.ctx)
+}
+
 // Platform returns an Electron-style platform string so the frontend's existing
 // checks (window.electronAPI.platform === 'win32' / !== 'linux') keep working.
 func (a *App) Platform() string {
@@ -59,28 +78,55 @@ func (a *App) Platform() string {
 	}
 }
 
-// ── Window close (mirrors the Electron confirm-close flow) ────────────────────
-// The Electron main process intercepted the window 'close', asked the renderer
-// (onConfirmClose), and closed only after ForceClose(). Wails' OnBeforeClose is
-// the equivalent hook.
+// ── Window close (mirrors the Electron confirm-close flow + v1.5.6 watchdog) ──
+// Electron intercepted the window 'close', asked the renderer (onConfirmClose),
+// and closed only after ForceClose() — with a 4s watchdog that force-closed a
+// wedged renderer and killed in-flight FFmpeg (the Windows freeze-on-close fix).
+// Wails' OnBeforeClose is the equivalent hook.
 
 // onBeforeClose is wired via options.App.OnBeforeClose in main.go. Returning true
-// prevents the close; we emit the confirm-close event and wait for ForceClose().
-// (M5 will add the wedged-renderer watchdog + killAllExports.)
+// prevents the close; we emit the confirm-close event and arm a watchdog. A live
+// renderer acks immediately (ConfirmCloseAck → clears it); if none lands within
+// the grace period we assume it's wedged, kill exports, and quit.
 func (a *App) onBeforeClose(ctx context.Context) bool {
 	if a.forceClose {
 		return false // allow close
 	}
 	wruntime.EventsEmit(ctx, "app:confirm-close")
+
+	a.watchdogMu.Lock()
+	if a.closeWatchdog != nil {
+		a.closeWatchdog.Stop()
+	}
+	a.closeWatchdog = time.AfterFunc(4*time.Second, func() {
+		a.forceClose = true
+		killAllExports()
+		wruntime.Quit(ctx)
+	})
+	a.watchdogMu.Unlock()
+
 	return true // prevent close; renderer shows the exit dialog
+}
+
+func (a *App) clearCloseWatchdog() {
+	a.watchdogMu.Lock()
+	if a.closeWatchdog != nil {
+		a.closeWatchdog.Stop()
+		a.closeWatchdog = nil
+	}
+	a.watchdogMu.Unlock()
 }
 
 // ForceClose is called by the renderer once the user confirms exit.
 func (a *App) ForceClose() {
+	a.clearCloseWatchdog()
 	a.forceClose = true
+	killAllExports() // don't leave an export running after the user exits
 	wruntime.Quit(a.ctx)
 }
 
-// ConfirmCloseAck is the renderer's "I'm alive and showing the dialog" ack. The
-// close watchdog that consumes it lands in M5; kept now so the shim can call it.
-func (a *App) ConfirmCloseAck() {}
+// ConfirmCloseAck is the renderer's "I'm alive and showing the dialog" ack — it
+// stands the wedged-renderer watchdog down.
+func (a *App) ConfirmCloseAck() {
+	a.clearCloseWatchdog()
+}

@@ -48,8 +48,10 @@ export default function Topbar({
 
   // On Windows/macOS the title bar is hidden, so the toolbar doubles as the
   // drag region; on Windows reserve space on the right for the native overlay
-  // (min/max/close) buttons so they don't overlap our controls.
-  const hiddenTitleBar = !!window.electronAPI && window.electronAPI.platform !== 'linux'
+  // (min/max/close) buttons so they don't overlap our controls. Under Wails we
+  // keep the native OS frame on all platforms (no titleBarOverlay equivalent),
+  // so customTitleBar is false and this stays off.
+  const hiddenTitleBar = !!window.electronAPI?.customTitleBar && window.electronAPI.platform !== 'linux'
   const isWindows      = window.electronAPI?.platform === 'win32'
 
   const fmtElapsed = (ms) => {

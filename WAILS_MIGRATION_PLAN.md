@@ -97,8 +97,13 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
       arg-building (`useFFmpeg.js`) untouched; single-final-pass swap stays
       renderer-side. **Refinement (later):** result preview uses `readFile` (base64
       of the whole output over the bridge) — could switch to `/media?p=<tmpOutput>`.
-- [ ] **M5 — Window/chrome:** frameless + titlebar drag; close-confirm via
-      `OnBeforeClose` (maps to the v1.5.6 close-watchdog); single-instance lock.
+- [x] **M5 — Window/chrome:** DONE (`wails build` green; runtime QA needs a
+      display). Native OS frame on all platforms (no Wails `titleBarOverlay`
+      equivalent) + MinWidth/MinHeight; Topbar custom-titlebar path gated off via
+      shim `customTitleBar:false`. Close-confirm + v1.5.6 freeze fix mirrored:
+      `onBeforeClose` emits `app:confirm-close` + arms a 4s watchdog; `ConfirmCloseAck`
+      clears it; `ForceClose`/`OnShutdown` call `killAllExports()` + quit.
+      `SingleInstanceLock` (UniqueId `com.moments.app`) focuses the existing window.
 - [ ] **M6 — Packaging parity:** Windows per-user NSIS + upgrade-in-place; Linux
       (AppImage/deb); bundle FFmpeg + fonts; CI (`.github/workflows`).
 - [ ] **M7 — QA parity pass** against the Electron feature list (CLAUDE.md).
@@ -133,10 +138,14 @@ GPU: `detectGPU`, `resetGPU` · FFmpeg: `checkFFmpeg`, `startExport`, `cancelExp
   (export loop).
 - **2026-07-02 (6)** — **M4 done.** `encoders.go` + `export.go` + expanded
   `ffmpeg.go` (smoke-tests). Full export loop ported (tokens, streaming, fallback,
-  cancel); `useFFmpeg.js` unchanged. `wails build` green. Runtime QA pending (real
-  export → MP4). **Next: M5** — window/chrome: frameless + titlebar drag (Wails
-  draggable, replacing `-webkit-app-region`), wire `killAllExports()` into
-  `ForceClose`/quit + a close watchdog (mirror the v1.5.6 fix), single-instance lock.
+  cancel); `useFFmpeg.js` unchanged. `wails build` green. (commit `bcb9bf9`)
+- **2026-07-02 (7)** — **M5 done.** Native frame (all platforms) + MinW/H; Topbar
+  custom-titlebar gated off (shim `customTitleBar:false`); close watchdog + kill
+  exports on ForceClose/OnShutdown/watchdog-timeout; SingleInstanceLock. `wails
+  build` green. **Next: M6** — packaging parity: Win per-user NSIS + upgrade-in-place
+  (Wails NSIS `nsisType:"perUser"` / custom template), Linux target, **externalize
+  the ~77 MB fonts + ffmpeg from the embedded bundle** (finalize `resourcesBase`/
+  `fontsDir`/`ffmpegPath` for packaged layout), CI. Then M7 QA.
 
 ## Open questions
 - Wails **v2** (stable) vs **v3** (alpha)? Default to v2 unless a v3 feature is

@@ -70,6 +70,9 @@ export async function installElectronShim() {
     // ── Platform info ──
     platform,
     isElectron: true, // unused by the app, kept for parity
+    // Wails uses the native OS frame on all platforms (no titleBarOverlay
+    // equivalent), so the Topbar should not act as a custom draggable titlebar.
+    customTitleBar: false,
 
     // ── Window controls ──
     forceClose: () => go.ForceClose(),

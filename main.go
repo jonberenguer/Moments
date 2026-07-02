@@ -27,11 +27,20 @@ func main() {
 			// (the media:// replacement — see media.go).
 			Handler: mediaHandler(),
 		},
+		MinWidth:         1100,
+		MinHeight:        700,
 		BackgroundColour: &options.RGBA{R: 18, G: 18, B: 18, A: 1},
 		OnStartup:        app.startup,
 		OnBeforeClose:    app.onBeforeClose,
+		OnShutdown:       app.onShutdown,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true, // deliver OS file-drop paths to OnFileDrop
+		},
+		// Single-instance: a second launch focuses the existing window instead of
+		// spinning up a rival that fights over prefs.json / temp export dirs.
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "com.moments.app",
+			OnSecondInstanceLaunch: app.onSecondInstance,
 		},
 		Bind: []interface{}{
 			app,
